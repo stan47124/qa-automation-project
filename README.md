@@ -163,6 +163,7 @@ API-вложения строятся по разрешённому списку
 
 ## Документация и ограничения
 
+- [Jenkins: API Pipeline, первый запуск и последующее подключение UI/Mobile/Allure](docs/jenkins.md).
 - [Аудит качества перед публикацией](docs/code_quality_audit.md).
 - [Аудит и выполненный первый этап интеграции](docs/integration_audit.md).
 - [Подготовка общей Allure-отчётности и проверка инфраструктуры](docs/integration_run_results.md).
