@@ -1,0 +1,4 @@
+# Install all three test suites. Versions are centralized in requirements/constraints.txt.
+-r requirements/api.txt
+-r requirements/ui.txt
+-r requirements/mobile.txt

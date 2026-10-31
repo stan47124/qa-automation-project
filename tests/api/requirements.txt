@@ -1,0 +1,2 @@
+# Compatibility entry point; install from the project root.
+-r ../../requirements/api.txt

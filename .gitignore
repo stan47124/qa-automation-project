@@ -1,0 +1,72 @@
+# Python environments, bytecode and caches
+.venv/
+.venv-*/
+venv/
+env/
+__pycache__/
+*.py[cod]
+.pytest_cache*/
+.mypy_cache/
+.ruff_cache/
+.cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Test reports, screenshots, logs and temporary files
+artifacts/
+allure-results/
+allure-report/
+test-results/
+reports/
+screenshots/
+selene/
+junit*.xml
+pytest.xml
+test-results*.xml
+screenshot*.png
+*-screenshot.png
+*.log
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*~
+tmp/
+temp/
+.tmp/
+
+# Local test data and Selenium Manager metadata
+/mobile_sample.txt
+/se-metadata.json
+/local-test-data/
+/local_data/
+
+# Credentials and machine-specific configuration
+/AGENTS.md
+.env
+.env.*
+!.env.example
+!.env.template
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*.json
+secrets*.json
+auth.json
+.aws/
+.ssh/
+.android/
+.codex/
+
+# IDEs: share only reviewed settings and extension recommendations
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# OS metadata
+.DS_Store
+Thumbs.db

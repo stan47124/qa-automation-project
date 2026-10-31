@@ -1,0 +1,7 @@
+# Versions already used by the project's successful individual suite runs.
+pytest==9.2.0
+allure-pytest==2.16.2
+requests==2.34.2
+selene==2.0.0rc10
+selenium==4.52.0
+Appium-Python-Client==6.0.12
