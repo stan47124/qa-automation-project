@@ -1,7 +1,8 @@
 """Bounded Mobile preflight, Appium ownership and pytest execution for Windows CI."""
 
 import argparse
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -11,6 +12,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 import urllib.error
 import urllib.request
 from uuid import uuid4
@@ -23,30 +25,91 @@ sys.path.insert(0, str(ROOT / 'tests/mobile'))
 from mobile_config import APP_ACTIVITY, APPIUM_URL, BASE_DIRECTORY, DEVICE, PACKAGE  # noqa: E402
 
 
-def wait_until(check, timeout, description, process=None):
-    deadline = time.monotonic() + timeout
-    while True:
-        if process is not None and process.poll() is not None:
-            raise RuntimeError(f'{description}: owned process exited with {process.returncode}')
-        value = check()
-        if value:
-            return value
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise TimeoutError(f'Timed out waiting for {description}')
-        threading.Event().wait(min(1, remaining))
+def timestamp():
+    return datetime.now(timezone.utc).isoformat(timespec='milliseconds')
 
 
-def read_appium(path):
+def save_traceback(report, description, error):
+    if report is not None:
+        with (Path(report) / 'diagnostic-traceback.log').open('a', encoding='utf-8') as output:
+            output.write(f'\n[{timestamp()}] {description}\n')
+            output.writelines(traceback.format_exception(error))
+
+
+def is_timeout(error):
+    pending, seen = [error], set()
+    while pending:
+        item = pending.pop()
+        if item is None or id(item) in seen:
+            continue
+        seen.add(id(item))
+        if isinstance(item, (TimeoutError, subprocess.TimeoutExpired)):
+            return True
+        pending.extend([getattr(item, '__cause__', None), getattr(item, '__context__', None),
+                        getattr(item, 'reason', None)])
+    return False
+
+
+@contextmanager
+def operation(description, *, log=None, report=None):
+    emit = log or (lambda message: print(f'[{timestamp()}] {message}', flush=True))
+    started = time.perf_counter()
+    emit(f'START {description}')
+    try:
+        yield
+    except BaseException as error:
+        emit(f'END {description} status=ERROR elapsed_s={time.perf_counter() - started:.3f} '
+             f'exception={type(error).__name__}')
+        if is_timeout(error):
+            # Save before cleanup can raise another exception and mask the initiating timeout.
+            save_traceback(report, description, error)
+        raise
+    else:
+        emit(f'END {description} status=OK elapsed_s={time.perf_counter() - started:.3f}')
+
+
+def wait_until(check, timeout, description, process=None, *, log=None, report=None):
+    with operation(f'Wait {description} timeout_s={timeout}', log=log, report=report):
+        deadline = time.monotonic() + timeout
+        attempt = 0
+        while True:
+            if process is not None and process.poll() is not None:
+                raise RuntimeError(f'{description}: owned process exited with {process.returncode}')
+            attempt += 1
+            with operation(f'{description} poll={attempt}', log=log, report=report):
+                value = check()
+            remaining = deadline - time.monotonic()
+            if log:
+                log(f'{description} poll={attempt} ready={bool(value)} remaining_s={remaining:.3f}')
+            if remaining < 0 or (remaining == 0 and not value):
+                raise TimeoutError(f'Timed out waiting for {description} (limit={timeout}s, polls={attempt})')
+            if value:
+                return value
+            threading.Event().wait(min(1, remaining))
+
+
+def read_appium(path, *, log=None, report=None, timeout=2):
     # No proxy, credentials or external URL: only the configured local Appium.
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-    try:
-        with opener.open(APPIUM_URL + path, timeout=2) as response:
-            return json.load(response)['value']
-    except urllib.error.HTTPError as error:
-        raise RuntimeError(f'Appium endpoint {path} returned HTTP {error.code}') from error
-    except urllib.error.URLError:
-        return None
+    with operation(f'Appium GET {path} socket_timeout_s={timeout}', log=log, report=report):
+        try:
+            with operation(f'HTTP open {path}', log=log, report=report):
+                response = opener.open(APPIUM_URL + path, timeout=timeout)
+            with response:
+                with operation(f'HTTP body {path}', log=log, report=report):
+                    value = json.load(response)['value']
+            return value
+        except urllib.error.HTTPError as error:
+            if log:
+                log(f'Appium GET {path}: HTTP status={error.code}')
+            raise RuntimeError(f'Appium endpoint {path} returned HTTP {error.code}') from error
+        except urllib.error.URLError as error:
+            if isinstance(error.reason, ConnectionRefusedError):
+                if log:
+                    log(f'Appium GET {path}: connection refused; server unavailable')
+                return None
+            # A transport timeout or permission error is not proof of an absent server.
+            raise
 
 
 def device_states(output):
@@ -86,20 +149,33 @@ class MobileRun:
         self.adb = str(self.sdk / 'platform-tools/adb.exe')
 
     def note(self, message):
+        message = f'[{timestamp()}] {message}'
         print(message, flush=True)
         with (self.report / 'environment.log').open('a', encoding='utf-8') as output:
             output.write(message + '\n')
 
+    def checking(self, description):
+        return operation(description, log=self.note, report=self.report)
+
     def command(self, args, timeout=20, check=True):
-        result = subprocess.run(args, env=self.env, capture_output=True, text=True,
-                                encoding='utf-8', errors='replace', timeout=timeout)
-        # These commands only inspect tools, device readiness and the test directory.
-        with (self.report / 'adb-tools.log').open('a', encoding='utf-8') as output:
-            output.write(subprocess.list2cmdline(list(map(str, args))) + '\n')
-            output.write(result.stdout + result.stderr + '\n')
-        if check and result.returncode:
-            raise RuntimeError(f'{Path(args[0]).name} failed with exit {result.returncode}; see adb-tools.log')
-        return result
+        command_line = subprocess.list2cmdline(list(map(str, args)))
+        with self.checking(f'Command {command_line} timeout_s={timeout}'):
+            with (self.report / 'adb-tools.log').open('a', encoding='utf-8') as output:
+                output.write(f'[{timestamp()}] START {command_line}\n')
+                try:
+                    result = subprocess.run(args, env=self.env, capture_output=True, text=True,
+                                            encoding='utf-8', errors='replace', timeout=timeout)
+                except subprocess.TimeoutExpired as error:
+                    for partial in (error.stdout, error.stderr):
+                        if partial:
+                            output.write(partial.decode('utf-8', errors='replace') if isinstance(partial, bytes) else partial)
+                    output.write(f'\n[{timestamp()}] TIMEOUT limit_s={timeout}\n')
+                    raise
+                output.write(result.stdout + result.stderr + '\n')
+                output.write(f'[{timestamp()}] END exit={result.returncode}\n')
+            if check and result.returncode:
+                raise RuntimeError(f'{Path(args[0]).name} failed with exit {result.returncode}; see adb-tools.log')
+            return result
 
     def prepare_device(self, owned, stack):
         devices = device_states(self.command([self.adb, 'devices', '-l']).stdout)
@@ -129,7 +205,7 @@ class MobileRun:
             return self.command([self.adb, '-s', DEVICE, 'shell', 'getprop', 'sys.boot_completed'],
                                 check=False).stdout.strip() == '1'
 
-        wait_until(booted, 180, 'Android boot_completed=1', emulator)
+        wait_until(booted, 180, 'Android boot_completed=1', emulator, log=self.note, report=self.report)
         self.command([self.adb, '-s', DEVICE, 'shell', 'pm', 'path', PACKAGE])
         activity = self.command([self.adb, '-s', DEVICE, 'shell', 'cmd', 'package',
                                  'resolve-activity', '--brief', PACKAGE]).stdout
@@ -140,27 +216,30 @@ class MobileRun:
         return emulator
 
     def prepare_appium(self, owned, stack, cli):
-        status = read_appium('/status')
+        status = read_appium('/status', log=self.note, report=self.report)
         server = None
         if status is None:
             if self.check_only:
                 raise RuntimeError('Appium is unavailable; Check never starts processes.')
-            try:
-                with socket.create_connection(('127.0.0.1', 4723), timeout=2):
-                    raise RuntimeError('Port 4723 is occupied without a valid Appium status; no process stopped.')
-            except ConnectionRefusedError:
-                pass
+            with self.checking('Appium TCP port probe 127.0.0.1:4723 timeout_s=2'):
+                try:
+                    with socket.create_connection(('127.0.0.1', 4723), timeout=2):
+                        raise RuntimeError('Port 4723 is occupied without a valid Appium status; no process stopped.')
+                except ConnectionRefusedError:
+                    pass
             log = stack.enter_context((self.report / 'appium.log').open('wb'))
-            server = owned.start(cli + ['--address', '127.0.0.1', '--port', '4723', '--base-path', '/',
-                                         '--log-level', 'info', '--log-no-colors', '--log-timestamp'], log, self.env)
+            with self.checking('Start owned Appium'):
+                server = owned.start(cli + ['--address', '127.0.0.1', '--port', '4723', '--base-path', '/',
+                                             '--log-level', 'info', '--log-no-colors', '--log-timestamp'], log, self.env)
             self.note('Started an owned Appium server.')
         else:
             self.note('Reusing existing Appium; its process and logs are not modified.')
-        wait_until(lambda: (read_appium('/status') or {}).get('ready') is True,
-                   60, 'Appium ready', server)
-        sessions = read_appium('/sessions')
-        if not isinstance(sessions, list) or sessions:
-            raise RuntimeError('Appium sessions are active or cannot be inspected; refusing concurrent use.')
+        wait_until(lambda: (read_appium('/status', log=self.note, report=self.report) or {}).get('ready') is True,
+                   60, 'Appium ready', server, log=self.note, report=self.report)
+        # GET /sessions is not a portable Appium endpoint. DeviceLock, held by
+        # execute() throughout preflight, pytest and cleanup, coordinates runners.
+        # Manual/non-cooperating clients must not use this device during CI.
+        self.note('Appium ready; device concurrency is controlled by DeviceLock, not GET /sessions.')
 
     def execute(self):
         if os.name != 'nt':
@@ -170,10 +249,13 @@ class MobileRun:
         self.note(f'Mobile device: {DEVICE}; Appium: {APPIUM_URL}')
         if self.sdk_conflict:
             raise RuntimeError('ANDROID_HOME and ANDROID_SDK_ROOT refer to different SDK directories.')
-        with DeviceLock(), ExitStack() as stack:
+        with self.checking('Mobile resource scope'), ExitStack() as stack:
+            with self.checking(f'Acquire DeviceLock {DEVICE}'):
+                stack.enter_context(DeviceLock())
             if not Path(self.adb).is_file():
                 raise RuntimeError('Android platform-tools/adb.exe is missing.')
-            cli = appium_command()
+            with self.checking('Resolve installed Appium CLI'):
+                cli = appium_command()
             self.command(['java', '-version'])
             self.command([cli[0], '--version'])
             self.command(cli + ['--version'])
@@ -182,27 +264,33 @@ class MobileRun:
                 raise RuntimeError('UiAutomator2 must be installed manually; CI will not install drivers.')
             # ADB failure stops here, before starting any managed process.
             self.command([self.adb, 'devices', '-l'])
-            owned = stack.enter_context(OwnedProcesses())
+            with self.checking('Initialize owned process scope'):
+                owned = stack.enter_context(OwnedProcesses())
             emulator = None
             try:
-                emulator = self.prepare_device(owned, stack)
-                self.prepare_appium(owned, stack, cli)
+                with self.checking('Android readiness and application checks'):
+                    emulator = self.prepare_device(owned, stack)
+                with self.checking('Appium preflight'):
+                    self.prepare_appium(owned, stack, cli)
                 if self.check_only:
                     self.note('Mobile preflight passed; tests were not started.')
                     return 0
                 self.note('Running only tests/mobile with noReset=True; no data reset requested.')
                 log = stack.enter_context((self.report / 'pytest-console.log').open('wb'))
-                process = owned.start(
-                    [sys.executable, '-m', 'pytest', 'tests/mobile', '-v',
-                     f'--basetemp={self.report}/pytest-tmp',
-                     f'--junitxml={self.report}/junit.xml',
-                     f'--alluredir={self.report}/allure-results'], log, self.env)
-                code = process.wait(timeout=600)
+                with self.checking('Start Mobile pytest'):
+                    process = owned.start(
+                        [sys.executable, '-m', 'pytest', 'tests/mobile', '-v',
+                         f'--basetemp={self.report}/pytest-tmp',
+                         f'--junitxml={self.report}/junit.xml',
+                         f'--alluredir={self.report}/allure-results'], log, self.env)
+                with self.checking('Wait Mobile pytest timeout_s=600'):
+                    code = process.wait(timeout=600)
                 self.note(f'Mobile pytest exit={code}; see pytest-console.log and JUnit.')
                 return code
             finally:
                 if emulator is not None and emulator.poll() is None:
-                    self.command([self.adb, '-s', DEVICE, 'emu', 'kill'], check=False)
+                    with self.checking('Stop owned emulator'):
+                        self.command([self.adb, '-s', DEVICE, 'emu', 'kill'], check=False)
 
 
 def infrastructure_report(report, message):
@@ -240,7 +328,7 @@ def attach_failure_logs(report):
     if not failures:
         return
     attachments = []
-    for name in ('environment.log', 'adb-tools.log', 'appium.log', 'emulator.log'):
+    for name in ('environment.log', 'adb-tools.log', 'appium.log', 'emulator.log', 'diagnostic-traceback.log'):
         source = report / name
         if source.is_file():
             target = uuid4().hex + '-' + name
@@ -272,6 +360,7 @@ def main():
         message = f'{type(error).__name__}: {error}'
         print(message, file=sys.stderr)
         if run is not None and run.owns_report:
+            save_traceback(report, 'Mobile runner failure (including cleanup)', error)
             infrastructure_report(report, message)
             attach_failure_logs(report)
         return 2
