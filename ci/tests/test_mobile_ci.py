@@ -62,7 +62,7 @@ def test_existing_appium_is_not_owned(run, monkeypatch):
     monkeypatch.setattr(ci, 'read_appium', status_only)
     run.prepare_appium(owned, Mock(), ['node', 'appium'])
     owned.start.assert_not_called()
-    assert paths == ['/status', '/status']
+    assert paths == ['/status']
 
 
 def test_busy_device_is_rejected_before_appium_or_commands(tmp_path, monkeypatch):
@@ -98,7 +98,8 @@ def test_check_mode_never_starts_appium(run, monkeypatch):
     run.check_only = True
     owned = Mock()
     monkeypatch.setattr(ci, 'read_appium', lambda path, **kwargs: None)
-    with pytest.raises(RuntimeError, match='Check never starts'):
+    monkeypatch.setattr(ci.time, 'monotonic', Mock(side_effect=[0, 0, 0, 61, 61]))
+    with pytest.raises(TimeoutError):
         run.prepare_appium(owned, Mock(), ['node', 'appium'])
     owned.start.assert_not_called()
 
@@ -108,7 +109,7 @@ def test_unavailable_appium_starts_owned_server_and_waits_ready(run, monkeypatch
     owned.start.return_value.poll.return_value = None
     status = Mock(side_effect=[None, {'ready': False}, {'ready': True}])
     monkeypatch.setattr(ci, 'read_appium', status)
-    monkeypatch.setattr(ci.socket, 'create_connection', Mock(side_effect=ConnectionRefusedError()))
+    monkeypatch.setattr(ci, 'appium_port_available', Mock(return_value=True))
     monkeypatch.setattr(ci.threading, 'Event', Mock())
     with ExitStack() as stack:
         run.prepare_appium(owned, stack, ['node', 'appium'])
@@ -137,7 +138,7 @@ def test_http_connect_timeout_is_preserved_and_traced(run, monkeypatch, wrapped)
     monkeypatch.setattr(ci.urllib.request, 'build_opener', Mock(return_value=opener))
     owned = Mock()
     with pytest.raises(type(error)):
-        run.prepare_appium(owned, Mock(), ['node', 'appium'])
+        ci.read_appium('/status', log=run.note, report=run.report)
     owned.start.assert_not_called()
     diagnostic = (run.report / 'diagnostic-traceback.log').read_text()
     assert 'HTTP open /status' in diagnostic
@@ -170,21 +171,20 @@ def test_http_refused_is_unavailable_but_permission_error_is_not(run, monkeypatc
         ci.read_appium('/status', log=run.note, report=run.report)
 
 
-def test_tcp_probe_timeout_is_traced_without_starting_server(run, monkeypatch):
+def test_port_probe_permission_error_does_not_start_server(run, monkeypatch):
     monkeypatch.setattr(ci, 'read_appium', lambda path, **kwargs: None)
-    monkeypatch.setattr(ci.socket, 'create_connection', Mock(side_effect=TimeoutError('TCP timed out')))
+    monkeypatch.setattr(ci, 'appium_port_available', Mock(side_effect=PermissionError('denied')))
     owned = Mock()
-    with pytest.raises(TimeoutError):
+    with pytest.raises(PermissionError):
         run.prepare_appium(owned, Mock(), ['node', 'appium'])
     owned.start.assert_not_called()
-    assert 'TCP port probe' in (run.report / 'diagnostic-traceback.log').read_text()
 
 
 def test_appium_ready_deadline_records_wait_context(run, monkeypatch):
     monkeypatch.setattr(ci, 'read_appium', lambda path, **kwargs: {'ready': False})
     monkeypatch.setattr(ci.time, 'monotonic', Mock(side_effect=[0, 61]))
     owned = Mock()
-    with pytest.raises(TimeoutError, match='Appium ready'):
+    with pytest.raises(TimeoutError, match='Appium did not return'):
         run.prepare_appium(owned, Mock(), ['node', 'appium'])
     owned.start.assert_not_called()
     assert 'Wait Appium ready timeout_s=60' in (run.report / 'diagnostic-traceback.log').read_text()
@@ -200,6 +200,120 @@ def test_subprocess_timeout_preserves_partial_output(run, monkeypatch):
     assert 'partial stdout' in log and 'partial stderr' in log
     assert 'TIMEOUT limit_s=20' in log
     assert 'TimeoutExpired' in (run.report / 'diagnostic-traceback.log').read_text()
+
+
+@pytest.mark.parametrize('wrapped', [False, True])
+def test_initial_timeout_free_port_starts_server_then_retries(run, monkeypatch, wrapped):
+    error = TimeoutError('connect timed out')
+    if wrapped:
+        error = urllib.error.URLError(error)
+    status = Mock(side_effect=[error, error, {'ready': False}, {'ready': True}])
+    monkeypatch.setattr(ci, 'read_appium', status)
+    probe = Mock(return_value=True)
+    monkeypatch.setattr(ci, 'appium_port_available', probe)
+    monkeypatch.setattr(ci.threading, 'Event', Mock())
+    owned = Mock()
+    owned.start.return_value.poll.return_value = None
+    with ExitStack() as stack:
+        run.prepare_appium(owned, stack, ['node', 'appium'])
+    owned.start.assert_called_once()
+    probe.assert_called_once()
+    assert status.call_count == 4
+    assert (run.report / 'appium.log').exists()
+
+
+def test_timeout_occupied_port_retries_existing_server_without_duplicate(run, monkeypatch):
+    monkeypatch.setattr(ci, 'read_appium', Mock(side_effect=[TimeoutError(), {'ready': True}]))
+    monkeypatch.setattr(ci, 'appium_port_available', Mock(return_value=False))
+    monkeypatch.setattr(ci.threading, 'Event', Mock())
+    owned = Mock()
+    run.prepare_appium(owned, Mock(), ['node', 'appium'])
+    owned.start.assert_not_called()
+
+
+def test_retry_timeout_uses_single_deadline_and_saves_traceback(run, monkeypatch):
+    monkeypatch.setattr(ci, 'read_appium', Mock(side_effect=TimeoutError('connect timeout')))
+    monkeypatch.setattr(ci, 'appium_port_available', Mock(return_value=False))
+    monkeypatch.setattr(ci.time, 'monotonic', Mock(side_effect=[0, 0, 2, 59, 60]))
+    monkeypatch.setattr(ci.threading, 'Event', Mock())
+    owned = Mock()
+    with pytest.raises(TimeoutError, match='within 60s'):
+        run.prepare_appium(owned, Mock(), ['node', 'appium'])
+    owned.start.assert_not_called()
+    assert 'Traceback' in (run.report / 'diagnostic-traceback.log').read_text()
+
+
+def test_owned_appium_exit_does_not_restart_or_kill_other_server(run, monkeypatch):
+    monkeypatch.setattr(ci, 'read_appium', Mock(return_value=None))
+    monkeypatch.setattr(ci, 'appium_port_available', Mock(return_value=True))
+    monkeypatch.setattr(ci.threading, 'Event', Mock())
+    owned = Mock()
+    owned.start.return_value.poll.return_value = 1
+    owned.start.return_value.returncode = 1
+    with ExitStack() as stack, pytest.raises(RuntimeError, match='exited with 1'):
+        run.prepare_appium(owned, stack, ['node', 'appium'])
+    owned.start.assert_called_once()
+
+
+def test_existing_server_not_ready_yet_is_reused_after_wait(run, monkeypatch):
+    monkeypatch.setattr(ci, 'read_appium', Mock(side_effect=[{'ready': False}, {'ready': True}]))
+    probe = Mock()
+    monkeypatch.setattr(ci, 'appium_port_available', probe)
+    monkeypatch.setattr(ci.threading, 'Event', Mock())
+    owned = Mock()
+    run.prepare_appium(owned, Mock(), ['node', 'appium'])
+    probe.assert_not_called()
+    owned.start.assert_not_called()
+
+
+def test_owned_server_never_ready_fails_with_logs_and_no_second_start(run, monkeypatch):
+    monkeypatch.setattr(ci, 'read_appium', Mock(return_value=None))
+    monkeypatch.setattr(ci, 'appium_port_available', Mock(return_value=True))
+    monkeypatch.setattr(ci.time, 'monotonic', Mock(side_effect=[0, 0, 2, 59, 60]))
+    monkeypatch.setattr(ci.threading, 'Event', Mock())
+    owned = Mock()
+    owned.start.return_value.poll.return_value = None
+    with ExitStack() as stack, pytest.raises(TimeoutError):
+        run.prepare_appium(owned, stack, ['node', 'appium'])
+    owned.start.assert_called_once()
+    assert (run.report / 'appium.log').exists()
+    assert 'TimeoutError' in (run.report / 'diagnostic-traceback.log').read_text()
+
+
+def test_ready_response_after_deadline_is_not_accepted(run, monkeypatch):
+    status = Mock(return_value={'ready': True})
+    monkeypatch.setattr(ci, 'read_appium', status)
+    monkeypatch.setattr(ci.time, 'monotonic', Mock(side_effect=[0, 59, 61, 61]))
+    owned = Mock()
+    with pytest.raises(TimeoutError):
+        run.prepare_appium(owned, Mock(), ['node', 'appium'])
+    assert status.call_args.kwargs['timeout'] == 1
+    owned.start.assert_not_called()
+
+
+def test_bad_status_route_does_not_start_appium(run, monkeypatch):
+    monkeypatch.setattr(ci, 'read_appium', Mock(side_effect=RuntimeError('HTTP 404')))
+    owned = Mock()
+    with pytest.raises(RuntimeError, match='404'):
+        run.prepare_appium(owned, Mock(), ['node', 'appium'])
+    owned.start.assert_not_called()
+
+
+@pytest.mark.parametrize('failure,available', [(None, True), (OSError(ci.errno.EADDRINUSE, 'busy'), False),
+                                            (PermissionError('denied'), None)])
+def test_exclusive_bind_probe_closes_socket_and_never_listens(monkeypatch, failure, available):
+    probe = MagicMock()
+    probe.__enter__.return_value = probe
+    probe.bind.side_effect = failure
+    monkeypatch.setattr(ci.socket, 'socket', Mock(return_value=probe))
+    if available is None:
+        with pytest.raises(PermissionError):
+            ci.appium_port_available()
+    else:
+        assert ci.appium_port_available() is available
+    probe.bind.assert_called_once_with(('127.0.0.1', 4723))
+    probe.listen.assert_not_called()
+    probe.__exit__.assert_called_once()
 
 
 @pytest.mark.parametrize('cleanup_error', [False, True])

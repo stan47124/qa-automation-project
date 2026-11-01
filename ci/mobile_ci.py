@@ -1,6 +1,7 @@
 """Bounded Mobile preflight, Appium ownership and pytest execution for Windows CI."""
 
 import argparse
+import errno
 from contextlib import ExitStack, contextmanager
 from datetime import datetime, timezone
 import json
@@ -112,6 +113,24 @@ def read_appium(path, *, log=None, report=None, timeout=2):
             raise
 
 
+def appium_port_available():
+    """Check absence even when Windows connect() times out instead of refusing.
+
+    Never listen or adopt an existing socket. A bind race is handled by the owned
+    Appium failing to start; its process tree alone is cleaned by OwnedProcesses.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        if os.name == 'nt':
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        try:
+            probe.bind(('127.0.0.1', 4723))
+        except OSError as error:
+            if error.errno == errno.EADDRINUSE or getattr(error, 'winerror', None) == 10048:
+                return False
+            raise  # Permission failures are not evidence of an absent server.
+    return True
+
+
 def device_states(output):
     return {parts[0]: parts[1] for line in output.splitlines()
             if len(parts := line.split()) >= 2 and parts[0] != 'List'}
@@ -216,26 +235,55 @@ class MobileRun:
         return emulator
 
     def prepare_appium(self, owned, stack, cli):
-        status = read_appium('/status', log=self.note, report=self.report)
+        # One deadline covers discovery, startup and readiness (including retries).
+        deadline = time.monotonic() + 60
         server = None
-        if status is None:
-            if self.check_only:
-                raise RuntimeError('Appium is unavailable; Check never starts processes.')
-            with self.checking('Appium TCP port probe 127.0.0.1:4723 timeout_s=2'):
+        attempt = 0
+        with self.checking('Wait Appium ready timeout_s=60'):
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError('Appium did not return /status ready=True within 60s; '
+                                       'see environment.log, appium.log (if owned), diagnostic-traceback.log. '
+                                       'Existing processes were not stopped.')
+                if server is not None and server.poll() is not None:
+                    raise RuntimeError(f'Owned Appium exited with {server.returncode}; see appium.log.')
+                attempt += 1
+                status = None
                 try:
-                    with socket.create_connection(('127.0.0.1', 4723), timeout=2):
-                        raise RuntimeError('Port 4723 is occupied without a valid Appium status; no process stopped.')
-                except ConnectionRefusedError:
-                    pass
-            log = stack.enter_context((self.report / 'appium.log').open('wb'))
-            with self.checking('Start owned Appium'):
-                server = owned.start(cli + ['--address', '127.0.0.1', '--port', '4723', '--base-path', '/',
-                                             '--log-level', 'info', '--log-no-colors', '--log-timestamp'], log, self.env)
-            self.note('Started an owned Appium server.')
-        else:
-            self.note('Reusing existing Appium; its process and logs are not modified.')
-        wait_until(lambda: (read_appium('/status', log=self.note, report=self.report) or {}).get('ready') is True,
-                   60, 'Appium ready', server, log=self.note, report=self.report)
+                    status = read_appium('/status', log=self.note, report=self.report,
+                                         timeout=min(2, remaining))
+                except (TimeoutError, urllib.error.URLError) as error:
+                    if not is_timeout(error):
+                        raise
+                    # Timeout alone does not prove absence. Test exclusive bind below.
+                    self.note(f'Appium poll={attempt} transport timeout exception={type(error).__name__}; retrying.')
+                if status is not None and not isinstance(status, dict):
+                    raise RuntimeError('Appium /status value must be a JSON object.')
+                if time.monotonic() >= deadline:
+                    continue
+                if status is not None and status.get('ready') is True:
+                    self.note('Owned Appium ready.' if server is not None else
+                              'Reusing existing Appium; its process and logs are not modified.')
+                    break
+                if status is None and server is None and not self.check_only:
+                    with self.checking('Appium exclusive bind probe 127.0.0.1:4723'):
+                        free = appium_port_available()
+                    if free:
+                        log = stack.enter_context((self.report / 'appium.log').open('wb'))
+                        with self.checking('Start owned Appium'):
+                            server = owned.start(cli + ['--address', '127.0.0.1', '--port', '4723',
+                                                        '--base-path', '/', '--log-level', 'info',
+                                                        '--log-no-colors', '--log-timestamp'], log, self.env)
+                        self.note('Started an owned Appium server; waiting for /status ready=True.')
+                    else:
+                        self.note('Port 4723 occupied; waiting for existing server, no duplicate started.')
+                if self.check_only and status is None:
+                    self.note('Appium unavailable; Check never starts processes; retrying status only.')
+                remaining = deadline - time.monotonic()
+                self.note(f'Appium poll={attempt} ready=False remaining_s={max(0, remaining):.3f}')
+                if remaining > 0:
+                    threading.Event().wait(min(1, remaining))
         # GET /sessions is not a portable Appium endpoint. DeviceLock, held by
         # execute() throughout preflight, pytest and cleanup, coordinates runners.
         # Manual/non-cooperating clients must not use this device during CI.
