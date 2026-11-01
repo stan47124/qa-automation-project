@@ -1,5 +1,11 @@
 # Jenkins: API Pipeline на Windows
 
+> Этот документ описывает первоначальную подготовку API Pipeline и прошлые проверки.
+> Текущий Jenkinsfile расширен до API + Web UI: [актуальная инструкция](jenkins-web.md).
+> По последним данным пользователя агент запускается Планировщиком в сессии
+> `WIN-1DRM97P1O7A\user`, API-сборки и Allure 3 работают. Повторно создавать Job,
+> устанавливать Allure или менять автозапуск для подключения Web UI не требуется.
+
 В корне добавлен `Jenkinsfile`; команды подготовки и запуска вынесены в
 `ci/run-api.cmd`. Pipeline запускает только `tests/api` и устанавливает только
 `requirements/api.txt` (pytest, requests, allure-pytest с общими constraints).

@@ -42,7 +42,7 @@ API использует requests.Session; UI — Selene с Selenium/Chrome; Mob
 
 - Проверенная локальная платформа: Windows, PowerShell, **Python 3.14.3**. Работа на других платформах/версиях Python пока не подтверждена.
 - Для API нужен сетевой доступ к `https://petstore3.swagger.io/api/v3`.
-- Для UI нужны Google Chrome и доступ к Automation Exercise. В прошлых UI-прогонах использовался Chrome 156.0.8078.76; Selenium Manager подбирает драйвер и может потребовать сеть/запись в свой локальный кэш. Каждый тест запускается headless с отдельным временным профилем 1440×1000.
+- Для UI нужны Google Chrome и доступ к Automation Exercise. В прошлых UI-прогонах использовался Chrome 156.0.8078.76; Selenium Manager подбирает драйвер и может потребовать сеть/запись в свой локальный кэш. Каждый тест получает отдельный временный профиль 1440×1000. Jenkins задаёт `HEADLESS=true`; локально по умолчанию открывается окно браузера.
 - Для Mobile нужны Android SDK/ADB в PATH, существующий Android Emulator, Material Files, работающие Appium Server и UiAutomator2. Pip устанавливает только Python Client, **не сервер и не SDK**.
 - Для HTML-отчёта Allure отдельно нужен Allure CLI и подходящая Java. Python-плагин сохраняет сырые результаты и не устанавливает CLI. Глобальные инструменты не устанавливаются из тестов автоматически.
 
@@ -98,6 +98,11 @@ py -3.14 -m venv .venv
 ```
 
 Не применять `-n auto` к одному эмулятору. Автоматических повторов API-запросов нет; сбои публичных сервисов и ошибки cleanup должны оставаться видимыми.
+
+Для Web UI без окна браузера перед запуском задайте `$env:HEADLESS = 'true'`.
+Чтобы вернуть обычное окно, задайте `$env:HEADLESS = 'false'`.
+Текущий Jenkinsfile последовательно запускает API и Web UI (ожидается 16 тестов),
+публикует оба JUnit и общий Allure; Mobile в CI не включён.
 
 ## Appium и Android Emulator
 
@@ -163,7 +168,8 @@ API-вложения строятся по разрешённому списку
 
 ## Документация и ограничения
 
-- [Jenkins: API Pipeline, первый запуск и последующее подключение UI/Mobile/Allure](docs/jenkins.md).
+- [Jenkins: текущий Pipeline API + Web UI и проверка 16 тестов](docs/jenkins-web.md).
+- [Jenkins: первоначальная подготовка API Pipeline и история диагностики](docs/jenkins.md).
 - [Аудит качества перед публикацией](docs/code_quality_audit.md).
 - [Аудит и выполненный первый этап интеграции](docs/integration_audit.md).
 - [Подготовка общей Allure-отчётности и проверка инфраструктуры](docs/integration_run_results.md).

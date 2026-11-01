@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -10,7 +11,8 @@ from storefront import Storefront
 @pytest.fixture
 def ui_browser(tmp_path, request):
     options = webdriver.ChromeOptions()
-    options.add_argument("--headless=new")
+    if os.getenv("HEADLESS", "false").strip().lower() in {"true", "1", "yes"}:
+        options.add_argument("--headless=new")
     options.add_argument("--window-size=1440,1000")
     options.add_argument("--disable-notifications")
     # ChromeDriver creates a separate temporary profile for each new session.
