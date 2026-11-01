@@ -32,7 +32,8 @@ def test_existing_emulator_is_not_launched_again(run):
     run.command = Mock(side_effect=[
         result('List of devices attached\nemulator-5554 device product:test\n'),
         result('List of devices attached\nemulator-5554 device\n'),
-        result('1\n'), result('package:/data/app/material-files/base.apk'),
+        result('1\n'), result('package:/system/framework/framework-res.apk'),
+        result('package:/data/app/material-files/base.apk'),
         result(ci.PACKAGE + '/' + ci.APP_ACTIVITY), result(),
     ])
     assert run.prepare_device(owned, Mock()) is None
@@ -42,7 +43,8 @@ def test_existing_emulator_is_not_launched_again(run):
 
 @pytest.mark.parametrize('devices', ['List of devices attached\n',
                                    'List of devices attached\nemulator-5556 device\n'])
-def test_missing_or_other_emulator_does_not_start_by_default(run, devices):
+def test_missing_or_other_emulator_does_not_start_when_disabled(run, devices):
+    run.start_emulator = False
     owned = Mock()
     run.command = Mock(return_value=result(devices))
     with pytest.raises(RuntimeError):
@@ -419,7 +421,7 @@ def test_failure_cleans_owned_resources_but_not_existing_emulator(tmp_path, monk
         mobile.execute()
     assert closed == [True]
     kill_calls = [call for call in mobile.command.call_args_list if 'kill' in call.args[0]]
-    assert len(kill_calls) == int(owned_emulator)
+    assert kill_calls == []  # Cleanup uses the owned Job Object, never an ADB serial.
 
 
 @pytest.mark.skipif(sys.platform != 'win32', reason='Windows Job Object integration')
@@ -480,3 +482,131 @@ def test_device_lock_rejects_a_second_process(tmp_path):
                                capture_output=True, timeout=10)
         assert other.returncode != 0
         assert b'Mobile device is busy' in other.stderr
+
+@pytest.fixture
+def android_setup(run, monkeypatch, tmp_path):
+    run.sdk = tmp_path / 'sdk'
+    binary = run.sdk / 'emulator/emulator.exe'
+    binary.parent.mkdir(parents=True)
+    binary.touch()
+    monkeypatch.setattr(ci.socket, 'socket', MagicMock())
+    monkeypatch.setattr(ci.threading, 'Event', Mock())
+
+    def configure(states, boots=None, pm=None, avds='Pixel_4\n'):
+        state_values = iter(states)
+        boot_values = iter(boots or ['1'])
+        pm_values = iter(pm or [result('package:/system/framework/framework-res.apk')])
+        latest = {'state': states[-1], 'boot': '1', 'pm': result('package:/system/framework/framework-res.apk')}
+
+        def command(args, **kwargs):
+            if 'devices' in args:
+                latest['state'] = next(state_values, latest['state'])
+                return result('List of devices attached\n' + latest['state'])
+            if '-list-avds' in args:
+                return result(avds)
+            if 'getprop' in args:
+                latest['boot'] = next(boot_values, latest['boot'])
+                return result(latest['boot'])
+            if args[-3:] == ['pm', 'path', 'android']:
+                latest['pm'] = next(pm_values, latest['pm'])
+                return latest['pm']
+            if 'resolve-activity' in args:
+                return result(ci.PACKAGE + '/' + ci.APP_ACTIVITY)
+            return result('package:/data/app/material-files/base.apk')
+
+        run.command = Mock(side_effect=command)
+        owned = Mock()
+        owned.start.return_value.poll.return_value = None
+        return owned
+    return configure
+
+
+def test_absent_emulator_autostarts_existing_avd(run, android_setup):
+    owned = android_setup(['', '', 'emulator-5554 offline\n', 'emulator-5554 device\n'])
+    with ExitStack() as stack:
+        assert run.prepare_device(owned, stack) is owned.start.return_value
+    owned.start.assert_called_once()
+    args = owned.start.call_args.args[0]
+    assert args[args.index('-avd') + 1] == 'Pixel_4'
+    assert '-no-window' in args and '-no-snapshot-save' in args
+    assert '-wipe-data' not in args
+    assert (run.report / 'emulator.log').exists()
+
+
+@pytest.mark.parametrize('initial', ['emulator-5554 device\n', 'emulator-5554 offline\n'])
+def test_slow_boot_and_package_manager_are_waited_for(run, android_setup, initial):
+    owned = android_setup([initial, initial, 'emulator-5554 device\n'],
+                          boots=['0', '1'], pm=[result('', 1), result('package:/system/framework/framework-res.apk')])
+    run.prepare_device(owned, Mock())
+    owned.start.assert_not_called()
+    assert len([call for call in run.command.call_args_list if 'getprop' in call.args[0]]) >= 3
+
+
+@pytest.mark.parametrize('states', [['emulator-5554 unauthorized\n'],
+                                  ['emulator-5554 offline\n', 'emulator-5554 unauthorized\n']])
+def test_unauthorized_is_immediate_error_without_reset(run, android_setup, states):
+    owned = android_setup(states)
+    with pytest.raises(RuntimeError, match='unauthorized'):
+        run.prepare_device(owned, Mock())
+    owned.start.assert_not_called()
+
+
+def test_multiple_devices_use_explicit_target_without_start(run, android_setup):
+    owned = android_setup(['physical123 device\nemulator-5554 device\nemulator-5556 device\n'])
+    run.prepare_device(owned, Mock())
+    owned.start.assert_not_called()
+    for call in run.command.call_args_list:
+        if 'shell' in call.args[0]:
+            assert call.args[0][1:3] == ['-s', 'emulator-5554']
+
+
+def test_other_emulator_prevents_duplicate(run, android_setup):
+    owned = android_setup(['emulator-5556 device\n'])
+    with pytest.raises(RuntimeError, match='Another emulator'):
+        run.prepare_device(owned, Mock())
+    owned.start.assert_not_called()
+
+
+@pytest.mark.parametrize('failure', ['start', 'exit', 'missing-avd', 'port'])
+def test_emulator_start_failures_are_reported(run, android_setup, monkeypatch, failure):
+    owned = android_setup([''], avds='' if failure == 'missing-avd' else 'Pixel_4\n')
+    if failure == 'start':
+        owned.start.side_effect = OSError('cannot start emulator')
+    elif failure == 'exit':
+        owned.start.return_value.poll.return_value = 1
+        owned.start.return_value.returncode = 1
+    elif failure == 'port':
+        probe = MagicMock()
+        probe.__enter__.return_value.bind.side_effect = OSError('port occupied')
+        monkeypatch.setattr(ci.socket, 'socket', Mock(return_value=probe))
+    with ExitStack() as stack, pytest.raises((OSError, RuntimeError)):
+        run.prepare_device(owned, stack)
+    if failure in ('missing-avd', 'port'):
+        owned.start.assert_not_called()
+
+
+def test_android_boot_deadline_is_shared_with_commands(run, android_setup, monkeypatch):
+    owned = android_setup(['emulator-5554 offline\n'])
+    ticks = iter(range(0, 1000, 20))
+    monkeypatch.setattr(ci.time, 'monotonic', lambda: next(ticks))
+    with pytest.raises(TimeoutError):
+        with run.checking('Android readiness'):
+            run.prepare_device(owned, Mock())
+    assert 'TimeoutError' in (run.report / 'diagnostic-traceback.log').read_text()
+    assert all(0 < call.kwargs['timeout'] <= 20 for call in run.command.call_args_list)
+    owned.start.assert_not_called()
+
+
+def test_repeated_ci_run_reuses_emulator_without_new_start(run, android_setup):
+    owned = android_setup(['emulator-5554 device\n'])
+    run.prepare_device(owned, Mock())
+    run.prepare_device(owned, Mock())
+    owned.start.assert_not_called()
+
+
+def test_check_mode_missing_emulator_never_starts(run, android_setup):
+    run.check_only = True
+    owned = android_setup([''])
+    with pytest.raises(RuntimeError, match='never starts'):
+        run.prepare_device(owned, Mock())
+    owned.start.assert_not_called()

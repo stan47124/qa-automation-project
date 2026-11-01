@@ -151,7 +151,7 @@ def appium_command():
 
 
 class MobileRun:
-    def __init__(self, report, start_emulator=False, avd='Pixel_4', check_only=False):
+    def __init__(self, report, start_emulator=True, avd='Pixel_4', check_only=False):
         self.report = Path(report).resolve()
         self.start_emulator = start_emulator
         self.avd = avd
@@ -197,17 +197,39 @@ class MobileRun:
             return result
 
     def prepare_device(self, owned, stack):
-        devices = device_states(self.command([self.adb, 'devices', '-l']).stdout)
+        deadline = time.monotonic() + 180
+
+        def remaining():
+            value = deadline - time.monotonic()
+            if value <= 0:
+                raise TimeoutError('Android readiness exceeded 180s; see emulator.log and adb-tools.log.')
+            return value
+
+        def command(args, **kwargs):
+            return self.command(args, timeout=min(20, remaining()), **kwargs)
+
+        devices = device_states(command([self.adb, 'devices', '-l']).stdout)
         emulator = None
         if DEVICE not in devices:
             if any(name.startswith('emulator-') for name in devices):
                 raise RuntimeError('Another emulator exists; refusing to launch an additional instance.')
             if not self.start_emulator or self.check_only:
-                raise RuntimeError(f'{DEVICE} is absent; start the existing AVD or opt in to START_ANDROID_EMULATOR.')
+                raise RuntimeError(f'{DEVICE} is absent; Check/disabled autostart never starts an emulator.')
             binary = self.sdk / 'emulator/emulator.exe'
-            avds = self.command([str(binary), '-list-avds']).stdout.splitlines()
+            if not binary.is_file():
+                raise RuntimeError(f'Android Emulator executable missing: {binary}')
+            avds = command([str(binary), '-list-avds']).stdout.splitlines()
             if self.avd not in avds:
                 raise RuntimeError(f'AVD {self.avd} is not installed; no AVD is created automatically.')
+            # Native AVD locking also prevents the same AVD being opened elsewhere.
+            # Check fixed console/ADB ports before starting; never kill their owners.
+            for port in (5554, 5555):
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+                    probe.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+                    try:
+                        probe.bind(('127.0.0.1', port))
+                    except OSError as error:
+                        raise RuntimeError(f'Emulator port {port} unavailable; no duplicate started.') from error
             log = stack.enter_context((self.report / 'emulator.log').open('wb'))
             emulator = owned.start([str(binary), '-avd', self.avd, '-port', '5554',
                                     '-no-window', '-no-snapshot-save'], log, self.env)
@@ -218,20 +240,35 @@ class MobileRun:
             self.note('Reusing existing emulator; it will not be stopped.')
 
         def booted():
-            states = device_states(self.command([self.adb, 'devices', '-l']).stdout)
-            if states.get(DEVICE) != 'device':
+            states = device_states(command([self.adb, 'devices', '-l']).stdout)
+            state = states.get(DEVICE)
+            self.note(f'Android {DEVICE} adb_state={state or "absent"}')
+            if state not in (None, 'offline', 'device'):
+                raise RuntimeError(f'{DEVICE} is {state}; authorize/fix the device manually; no reset performed.')
+            if state != 'device':
                 return False
-            return self.command([self.adb, '-s', DEVICE, 'shell', 'getprop', 'sys.boot_completed'],
-                                check=False).stdout.strip() == '1'
+            try:
+                boot = command([self.adb, '-s', DEVICE, 'shell', 'getprop', 'sys.boot_completed'], check=False)
+                if boot.returncode or boot.stdout.strip() != '1':
+                    return False
+                pm = command([self.adb, '-s', DEVICE, 'shell', 'pm', 'path', 'android'], check=False)
+                return pm.returncode == 0 and any(line.startswith('package:') for line in pm.stdout.splitlines())
+            except subprocess.TimeoutExpired:
+                self.note('Android shell readiness command timed out; retry within the shared deadline.')
+                return False
 
-        wait_until(booted, 180, 'Android boot_completed=1', emulator, log=self.note, report=self.report)
-        self.command([self.adb, '-s', DEVICE, 'shell', 'pm', 'path', PACKAGE])
-        activity = self.command([self.adb, '-s', DEVICE, 'shell', 'cmd', 'package',
+        wait_until(booted, remaining(), 'Android boot_completed=1 and Package Manager ready',
+                   emulator, log=self.note, report=self.report)
+        package = command([self.adb, '-s', DEVICE, 'shell', 'pm', 'path', PACKAGE])
+        if not any(line.startswith('package:') for line in package.stdout.splitlines()):
+            raise RuntimeError('Material Files is not installed; CI will not install or reset application data.')
+        activity = command([self.adb, '-s', DEVICE, 'shell', 'cmd', 'package',
                                  'resolve-activity', '--brief', PACKAGE]).stdout
         if not any(name in activity for name in (PACKAGE + '/' + APP_ACTIVITY,
                                                  PACKAGE + '/' + PACKAGE + APP_ACTIVITY)):
             raise RuntimeError('Material Files activity is not installed or cannot be resolved.')
-        self.command([self.adb, '-s', DEVICE, 'shell', 'test', '-d', str(BASE_DIRECTORY)])
+        command([self.adb, '-s', DEVICE, 'shell', 'test', '-d', str(BASE_DIRECTORY)])
+        self.note(f'Android {DEVICE} ready for Mobile tests; AVD={self.avd}; owned={emulator is not None}.')
         return emulator
 
     def prepare_appium(self, owned, stack, cli):
@@ -336,9 +373,8 @@ class MobileRun:
                 self.note(f'Mobile pytest exit={code}; see pytest-console.log and JUnit.')
                 return code
             finally:
-                if emulator is not None and emulator.poll() is None:
-                    with self.checking('Stop owned emulator'):
-                        self.command([self.adb, '-s', DEVICE, 'emu', 'kill'], check=False)
+                self.note('Closing owned process scope; only this run\'s process trees will be stopped. '
+                          'Existing emulator and Appium are preserved.')
 
 
 def infrastructure_report(report, message):
@@ -399,7 +435,7 @@ def main():
         parser.error('Mobile report directory already exists; choose a new run.')
     run = None
     try:
-        run = MobileRun(report, os.getenv('START_ANDROID_EMULATOR', 'false').lower() == 'true',
+        run = MobileRun(report, os.getenv('START_ANDROID_EMULATOR', 'true').lower() == 'true',
                         os.getenv('ANDROID_AVD', 'Pixel_4'), args.check)
         code = run.execute()
         attach_failure_logs(report)

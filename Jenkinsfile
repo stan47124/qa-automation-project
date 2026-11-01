@@ -34,10 +34,8 @@ pipeline {
     parameters {
         string(name: 'PYTHON_EXE', defaultValue: 'C:\\Users\\user\\AppData\\Local\\Python\\bin\\python.exe',
                description: 'Python 3.14 executable available to the Windows agent service; absolute path recommended.')
-        booleanParam(name: 'START_ANDROID_EMULATOR', defaultValue: false,
-                     description: 'Start an existing AVD only if emulator-5554 and other emulators are absent.')
         string(name: 'ANDROID_AVD', defaultValue: 'Pixel_4',
-               description: 'Existing AVD to use when START_ANDROID_EMULATOR is enabled.')
+               description: 'Existing AVD to start automatically if emulator-5554 is absent.')
     }
 
     environment {
@@ -110,7 +108,7 @@ pipeline {
                     script {
                         def code
                         withEnv(["REPORT_ROOT=${env.REPORT_ROOT}/mobile",
-                                 "START_ANDROID_EMULATOR=${params.START_ANDROID_EMULATOR}",
+                                 'START_ANDROID_EMULATOR=true',
                                  "ANDROID_AVD=${params.ANDROID_AVD}"]) {
                             code = bat(returnStatus: true, script: 'ci\\run-mobile.cmd Test')
                         }
