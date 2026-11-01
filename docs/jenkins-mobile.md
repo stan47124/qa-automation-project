@@ -150,7 +150,7 @@ $sdk = 'C:\Users\user\AppData\Local\Android\Sdk'
 & "$sdk\emulator\emulator.exe" -list-avds
 & "$sdk\platform-tools\adb.exe" devices -l
 & "$sdk\platform-tools\adb.exe" -s emulator-5554 shell getprop sys.boot_completed
-& "$sdk\platform-tools\adb.exe" -s emulator-5554 shell cmd package resolve-activity --brief me.zhanghai.android.files
+& "$sdk\platform-tools\adb.exe" -s emulator-5554 shell cmd package resolve-activity --brief --user current -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -p me.zhanghai.android.files
 & "$sdk\platform-tools\adb.exe" -s emulator-5554 shell ls -ld /sdcard/Download/qa_guru
 cmd /d /c appium driver list --installed --json
 ```
@@ -276,8 +276,58 @@ JUnit и общий Allure с результатами всех трёх нап�
 `environment.log`, `appium.log`, `diagnostic-traceback.log` в архиве и Allure.
 Модульные проверки не заменяют подтверждение этого результата реальной сборкой.
 
+## Material Files: пакет, launcher Activity и запуск
+
+`pm path` подтверждает наличие APK, но не успешное разрешение launcher intent
+и не запуск Activity. В диагностируемой сборке пакет был установлен, а
+`resolve-activity` вернул `No activity found`. Причина этого конкретного ответа
+на устройстве пока не подтверждена. В Android 13 позиционный аргумент с именем
+пакета уже подразумевает MAIN/LAUNCHER, а resolve-activity по умолчанию использует
+текущего пользователя. Поэтому одни лишь явные флаги не доказывают исправления.
+Возможна временная неготовность launcher resolution после холодной загрузки,
+но это гипотеза, которую должны подтвердить журналы следующей сборки.
+
+Проверки разделены:
+
+1. `am get-current-user` определяет числовой ID; `pm path --user <ID> <package>`
+   проверяет установку именно для этого пользователя. Логируются ID и число APK.
+2. `cmd package resolve-activity --brief --user <ID> -a android.intent.action.MAIN
+   -c android.intent.category.LAUNCHER -p <package>` получает launcher из
+   установленного приложения. При отсутствии результата запрос повторяется до
+   30 секунд, в пределах общего бюджета Android 180 секунд. Ошибки PM/прав
+   не маскируются под отсутствие пакета. Отсутствующая launcher Activity остаётся
+   причиной отказа; проверка не отключена.
+3. Компонент разбирается отдельной строкой и нормализуется: короткое
+   `.filelist.FileListActivity` и полное имя класса эквивалентны. Если launcher
+   отличается от Appium APP_ACTIVITY (например, alias), дополнительный explicit
+   resolve подтверждает настроенную Activity. Имена не заменяются предположениями.
+4. В режиме Test `am start -W --user <ID> -a android.intent.action.MAIN
+   -c android.intent.category.LAUNCHER -n <подтверждённый компонент Appium>`
+   проверяет возможность запуска. Требуется `Status: ok`, одного exit code 0
+   недостаточно. Ошибки прав/отсутствующего компонента отклоняются. Нет force-stop,
+   очистки данных или переустановки. Check подтверждает пакет и Activity без запуска.
+
+Официальный манифест Material Files объявляет
+`me.zhanghai.android.files.filelist.FileListActivity` с MAIN/LAUNCHER. Это
+совпадает с существующим APP_ACTIVITY, который оставлен без изменений. Манифест
+upstream не подтверждает версию APK на эмуляторе: runtime resolve на агенте
+проверяет фактическую установку перед тестами. В Codex эта проверка заблокирована
+ошибкой ADB `Cannot mkdir '\.android': Permission denied`; обход не выполнялся.
+
+Перед следующим согласованным push оставить AVD выключенным. Дождаться Poll SCM
+без Build Now, проверить SHA и SCM change. В `environment.log` проверить
+`installed=True`, числовой user, `launcher=...`, `Appium component confirmed=...`
+и `launch verified Status=ok`, затем готовность Appium. При отказе изучить фазу,
+exit code/категорию причины в environment.log и stdout/stderr конкретных команд
+в adb-tools.log; полный traceback сохранён в diagnostic-traceback.log. Проверить
+SUCCESS, 8 API + 8 Web UI + 6 Mobile, JUnit и общий Allure. Успех полного прогона
+после этого исправления пока не подтверждён.
+
 ## Источники
 
 - [Android Emulator CLI](https://developer.android.com/studio/run/emulator-commandline)
 - [Appium server CLI](https://appium.io/docs/en/3.7/reference/cli/server/)
 - [Windows Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)
+- [Material Files AndroidManifest](https://github.com/zhanghai/MaterialFiles/blob/master/app/src/main/AndroidManifest.xml)
+- [Android 13 Intent command arguments](https://raw.githubusercontent.com/aosp-mirror/platform_frameworks_base/android13-release/core/java/android/content/Intent.java)
+- [Android 13 Package Manager shell](https://raw.githubusercontent.com/aosp-mirror/platform_frameworks_base/android13-release/services/core/java/com/android/server/pm/PackageManagerShellCommand.java)

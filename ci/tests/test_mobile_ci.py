@@ -33,8 +33,9 @@ def test_existing_emulator_is_not_launched_again(run):
         result('List of devices attached\nemulator-5554 device product:test\n'),
         result('List of devices attached\nemulator-5554 device\n'),
         result('1\n'), result('package:/system/framework/framework-res.apk'),
+        result('0\n'),
         result('package:/data/app/material-files/base.apk'),
-        result(ci.PACKAGE + '/' + ci.APP_ACTIVITY), result(),
+        result(ci.PACKAGE + '/' + ci.APP_ACTIVITY), result('Status: ok\n'), result(),
     ])
     assert run.prepare_device(owned, Mock()) is None
     owned.start.assert_not_called()
@@ -504,6 +505,10 @@ def android_setup(run, monkeypatch, tmp_path):
                 return result('List of devices attached\n' + latest['state'])
             if '-list-avds' in args:
                 return result(avds)
+            if 'get-current-user' in args:
+                return result('0\n')
+            if 'start' in args:
+                return result('Status: ok\n')
             if 'getprop' in args:
                 latest['boot'] = next(boot_values, latest['boot'])
                 return result(latest['boot'])
@@ -610,3 +615,117 @@ def test_check_mode_missing_emulator_never_starts(run, android_setup):
     with pytest.raises(RuntimeError, match='never starts'):
         run.prepare_device(owned, Mock())
     owned.start.assert_not_called()
+
+@pytest.fixture
+def application(run):
+    def setup(package=None, launcher=None, launch=None, explicit=None, user='10'):
+        def command(args, **kwargs):
+            if 'get-current-user' in args:
+                return result(user + '\n')
+            if 'resolve-activity' in args:
+                if '-n' in args:
+                    return explicit if explicit is not None else result(ci.PACKAGE + '/' + ci.APP_ACTIVITY)
+                return launcher if launcher is not None else result(ci.PACKAGE + '/' + ci.APP_ACTIVITY)
+            if 'start' in args:
+                return launch if launch is not None else result('Starting: Intent { ... }\nStatus: ok\n')
+            return package if package is not None else result('package:/data/app/base.apk\npackage:/data/app/split.apk\n')
+        return Mock(side_effect=command)
+    return setup
+
+
+@pytest.mark.parametrize('activity', [ci.APP_ACTIVITY, ci.PACKAGE + ci.APP_ACTIVITY])
+def test_material_files_installed_launcher_and_launch_confirmed(run, application, activity):
+    command = application(launcher=result(ci.PACKAGE + '/' + activity))
+    run.prepare_application(command)
+    calls = [call.args[0] for call in command.call_args_list]
+    resolve = next(args for args in calls if 'resolve-activity' in args)
+    assert resolve[resolve.index('--user') + 1] == '10'
+    assert ['-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.LAUNCHER'] == resolve[-6:-2]
+    assert resolve[-2:] == ['-p', ci.PACKAGE]
+    assert '--user' in next(args for args in calls if 'path' in args)
+    start = next(args for args in calls if 'start' in args)
+    assert start[-1] == ci.PACKAGE + '/' + ci.PACKAGE + ci.APP_ACTIVITY
+    assert '-S' not in start and 'clear' not in start
+    assert 'launch verified Status=ok' in (run.report / 'environment.log').read_text()
+
+
+def test_material_files_absent_stops_before_resolution_or_launch(run, application):
+    command = application(package=result(''))
+    with pytest.raises(RuntimeError, match='package absent'):
+        run.prepare_application(command)
+    assert len(command.call_args_list) == 2
+
+
+@pytest.mark.parametrize('output', ['No activity found\n', '', 'priority=0 preferredOrder=0\n'])
+def test_installed_app_without_launcher_is_not_ready(run, application, output, monkeypatch):
+    command = application(launcher=result(output))
+
+    def expire(check, *args, **kwargs):
+        assert check() is None
+        raise TimeoutError('No launcher within deadline')
+
+    monkeypatch.setattr(ci, 'wait_until', expire)
+    with pytest.raises(TimeoutError):
+        run.prepare_application(command)
+    assert not any('start' in call.args[0] for call in command.call_args_list)
+
+
+@pytest.mark.parametrize('phase', ['package', 'launcher', 'launch'])
+def test_application_pm_and_launch_errors_are_diagnosed(run, application, phase):
+    command = application(**{phase: subprocess.CompletedProcess([], 1, '', 'SecurityException: denied')})
+    with pytest.raises(RuntimeError, match='SecurityException'):
+        run.prepare_application(command)
+    assert 'reason=SecurityException' in (run.report / 'environment.log').read_text()
+
+
+@pytest.mark.parametrize('output', ['Error type 3\nError: Activity class does not exist',
+                                  'Status: timeout\n', 'Permission Denial: not exported'])
+def test_am_start_zero_exit_is_not_enough(run, application, output):
+    command = application(launch=result(output))
+    with pytest.raises(RuntimeError):
+        run.prepare_application(command)
+
+
+def test_launcher_alias_requires_confirmation_of_configured_appium_activity(run, application):
+    command = application(launcher=result(ci.PACKAGE + '/.LauncherAlias'))
+    run.prepare_application(command)
+    explicit = [call for call in command.call_args_list
+                if 'resolve-activity' in call.args[0] and '-n' in call.args[0]]
+    assert len(explicit) == 1
+
+
+def test_launcher_does_not_mask_invalid_appium_activity(run, application):
+    command = application(launcher=result(ci.PACKAGE + '/.LauncherAlias'), explicit=result('No activity found'))
+    with pytest.raises(RuntimeError):
+        run.prepare_application(command)
+    assert not any('start' in call.args[0] for call in command.call_args_list)
+
+
+def test_application_check_only_does_not_launch(run, application):
+    run.check_only = True
+    command = application()
+    run.prepare_application(command)
+    assert not any('start' in call.args[0] for call in command.call_args_list)
+
+
+def test_component_parser_rejects_substrings_and_other_output():
+    assert ci.activity_component('Error: me.zhanghai.android.files/.filelist.FileListActivity missing') is None
+    assert ci.activity_component('No activity found') is None
+    assert ci.activity_component(ci.PACKAGE + '/' + ci.APP_ACTIVITY) == ci.PACKAGE + '/' + ci.PACKAGE + ci.APP_ACTIVITY
+
+
+def test_launcher_resolution_retries_after_first_boot(run, application, monkeypatch):
+    base = application()
+    attempts = 0
+
+    def command(args, **kwargs):
+        nonlocal attempts
+        if 'resolve-activity' in args:
+            attempts += 1
+            if attempts == 1:
+                return result('No activity found\n')
+        return base(args, **kwargs)
+
+    monkeypatch.setattr(ci.threading, 'Event', Mock())
+    run.prepare_application(command)
+    assert attempts == 2

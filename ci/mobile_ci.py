@@ -6,6 +6,7 @@ from contextlib import ExitStack, contextmanager
 from datetime import datetime, timezone
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import socket
@@ -136,6 +137,18 @@ def device_states(output):
             if len(parts := line.split()) >= 2 and parts[0] != 'List'}
 
 
+def activity_component(output):
+    """Read a component line, not a substring of a Package Manager diagnostic."""
+    for line in output.splitlines():
+        match = re.fullmatch(r'([\w.]+)/([\w.$]+)', line.strip(), flags=re.ASCII)
+        if match:
+            package, activity = match.groups()
+            if activity.startswith('.'):
+                activity = package + activity
+            return package + '/' + activity
+    return None
+
+
 def appium_command():
     node = shutil.which('node.exe')
     shim = shutil.which('appium.cmd')
@@ -259,17 +272,72 @@ class MobileRun:
 
         wait_until(booted, remaining(), 'Android boot_completed=1 and Package Manager ready',
                    emulator, log=self.note, report=self.report)
-        package = command([self.adb, '-s', DEVICE, 'shell', 'pm', 'path', PACKAGE])
-        if not any(line.startswith('package:') for line in package.stdout.splitlines()):
-            raise RuntimeError('Material Files is not installed; CI will not install or reset application data.')
-        activity = command([self.adb, '-s', DEVICE, 'shell', 'cmd', 'package',
-                                 'resolve-activity', '--brief', PACKAGE]).stdout
-        if not any(name in activity for name in (PACKAGE + '/' + APP_ACTIVITY,
-                                                 PACKAGE + '/' + PACKAGE + APP_ACTIVITY)):
-            raise RuntimeError('Material Files activity is not installed or cannot be resolved.')
+        self.prepare_application(command)
         command([self.adb, '-s', DEVICE, 'shell', 'test', '-d', str(BASE_DIRECTORY)])
         self.note(f'Android {DEVICE} ready for Mobile tests; AVD={self.avd}; owned={emulator is not None}.')
         return emulator
+
+    def prepare_application(self, command):
+        shell = [self.adb, '-s', DEVICE, 'shell']
+
+        def checked(phase, args, *, allow_missing=False):
+            response = command(shell + args, check=False)
+            text = response.stdout + '\n' + response.stderr
+            reason = next((name for name in ('SecurityException', 'Permission Denial', 'Error type 3',
+                                             'Error:', 'Exception', 'Failure', 'No activity found')
+                           if name in text), None)
+            self.note(f'Material Files {phase}: exit={response.returncode}; reason={reason or "none"}')
+            if response.returncode or (reason and not (allow_missing and reason == 'No activity found')):
+                raise RuntimeError(f'Material Files {phase} failed: exit={response.returncode}; '
+                                   f'reason={reason or "command failure"}; see adb-tools.log.')
+            return response.stdout
+
+        with self.checking('Material Files package installation'):
+            user = checked('Android user', ['am', 'get-current-user']).strip()
+            if not re.fullmatch(r'[0-9]+', user):
+                raise RuntimeError('Cannot determine current Android user; see adb-tools.log.')
+            self.note(f'Material Files Android user={user}')
+            package = checked('package lookup', ['pm', 'path', '--user', user, PACKAGE])
+            paths = [line for line in package.splitlines() if line.startswith('package:')]
+            self.note(f'Material Files installed={bool(paths)} apk_paths={len(paths)} user={user}')
+            if not paths:
+                raise RuntimeError(f'Material Files package absent for Android user {user}; no install/reset performed.')
+
+        intent = ['-a', 'android.intent.action.MAIN', '-c', 'android.intent.category.LAUNCHER']
+        resolve = ['cmd', 'package', 'resolve-activity', '--brief', '--user', user]
+        with self.checking('Material Files launcher Activity resolution'):
+            def find_launcher():
+                output = checked('MAIN/LAUNCHER lookup', resolve + intent + ['-p', PACKAGE], allow_missing=True)
+                component = activity_component(output)
+                self.note(f'Material Files launcher={component or "unresolved"}')
+                if component and component.split('/')[0] != PACKAGE:
+                    raise RuntimeError('Resolved launcher belongs to an unexpected package; see adb-tools.log.')
+                return component
+
+            # Package Manager can answer pm path before resolving launcher intents
+            # after boot. All commands still share prepare_device's 180s budget.
+            launcher = wait_until(find_launcher, 30, 'Material Files MAIN/LAUNCHER Activity (package installed)',
+                                  log=self.note, report=self.report)
+            configured = activity_component(PACKAGE + '/' + APP_ACTIVITY)
+            if not configured:
+                raise RuntimeError('Appium APP_ACTIVITY is not a valid component.')
+            # A launcher alias may differ from Appium's explicit Activity. Confirm
+            # that target from the installed package rather than guessing a name.
+            if configured != launcher:
+                explicit = activity_component(checked('Appium Activity lookup', resolve + ['-n', configured]))
+                if explicit != configured:
+                    raise RuntimeError('Installed launcher differs from Appium APP_ACTIVITY and configured '
+                                       'Activity cannot be resolved; see adb-tools.log.')
+            self.note(f'Material Files Appium component confirmed={configured}')
+
+        if self.check_only:
+            self.note('Check mode: launcher resolved; application launch is deferred to Test mode.')
+            return
+        with self.checking('Material Files launch verification'):
+            launch = checked('launch', ['am', 'start', '-W', '--user', user, *intent, '-n', configured])
+            if not re.search(r'^Status:\s*ok\s*$', launch, re.MULTILINE):
+                raise RuntimeError('Material Files launch did not report Status: ok; see adb-tools.log.')
+            self.note('Material Files launch verified Status=ok; data preserved; Appium may now start.')
 
     def prepare_appium(self, owned, stack, cli):
         # One deadline covers discovery, startup and readiness (including retries).
