@@ -171,6 +171,7 @@ API-вложения строятся по разрешённому списку
 
 ## Документация и ограничения
 
+- [Автозапуск Jenkins через Poll SCM: настройка и проверка после git push](docs/jenkins-polling.md).
 - [Jenkins: текущий Pipeline API + Web UI + Mobile и проверка 22 тестов](docs/jenkins-mobile.md).
 - [Jenkins: подключение Web UI и проверка первых 16 тестов](docs/jenkins-web.md).
 - [Jenkins: первоначальная подготовка API Pipeline и история диагностики](docs/jenkins.md).

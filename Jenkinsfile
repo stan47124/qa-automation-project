@@ -21,6 +21,10 @@ def publishResults(String root) {
 pipeline {
     agent { label 'windows-api' }
 
+    triggers {
+        pollSCM('H/5 * * * *')
+    }
+
     options {
         skipDefaultCheckout(true)
         disableConcurrentBuilds()
