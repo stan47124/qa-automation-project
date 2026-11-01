@@ -1,7 +1,8 @@
 # Jenkins: API Pipeline на Windows
 
 > Этот документ описывает первоначальную подготовку API Pipeline и прошлые проверки.
-> Текущий Jenkinsfile расширен до API + Web UI: [актуальная инструкция](jenkins-web.md).
+> Текущий Jenkinsfile расширен до API + Web UI + Mobile:
+> [актуальная инструкция](jenkins-mobile.md), [этап подключения Web UI](jenkins-web.md).
 > По последним данным пользователя агент запускается Планировщиком в сессии
 > `WIN-1DRM97P1O7A\user`, API-сборки и Allure 3 работают. Повторно создавать Job,
 > устанавливать Allure или менять автозапуск для подключения Web UI не требуется.

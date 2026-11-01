@@ -101,8 +101,9 @@ py -3.14 -m venv .venv
 
 Для Web UI без окна браузера перед запуском задайте `$env:HEADLESS = 'true'`.
 Чтобы вернуть обычное окно, задайте `$env:HEADLESS = 'false'`.
-Текущий Jenkinsfile последовательно запускает API и Web UI (ожидается 16 тестов),
-публикует оба JUnit и общий Allure; Mobile в CI не включён.
+Текущий Jenkinsfile последовательно запускает API, Web UI и Mobile (ожидается
+22 теста), публикует JUnit трёх наборов и общий Allure. Для Mobile нужны
+подготовленный Android и Appium; [параметры и первый запуск](docs/jenkins-mobile.md).
 
 ## Appium и Android Emulator
 
@@ -168,7 +169,8 @@ API-вложения строятся по разрешённому списку
 
 ## Документация и ограничения
 
-- [Jenkins: текущий Pipeline API + Web UI и проверка 16 тестов](docs/jenkins-web.md).
+- [Jenkins: текущий Pipeline API + Web UI + Mobile и проверка 22 тестов](docs/jenkins-mobile.md).
+- [Jenkins: подключение Web UI и проверка первых 16 тестов](docs/jenkins-web.md).
 - [Jenkins: первоначальная подготовка API Pipeline и история диагностики](docs/jenkins.md).
 - [Аудит качества перед публикацией](docs/code_quality_audit.md).
 - [Аудит и выполненный первый этап интеграции](docs/integration_audit.md).

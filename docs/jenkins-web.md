@@ -1,5 +1,9 @@
 # Jenkins: API + Web UI
 
+> Этап подключения первых 16 тестов. Теперь Jenkinsfile включает также Mobile;
+> [текущая конфигурация и проверки](jenkins-mobile.md). Ниже сохранены подробности
+> подключения Web UI и фактические результаты его первоначальной проверки.
+
 Jenkinsfile выполняет последовательно Checkout → Prepare API environment →
 API tests → Prepare Web UI environment → Web UI tests → Publish results.
 Агент `windows-api`, `checkout scm`, параметр `PYTHON_EXE` и API helper сохранены.

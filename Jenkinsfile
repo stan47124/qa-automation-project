@@ -1,10 +1,10 @@
-// Publish once for both suites; also called from post if a preceding stage fails.
+// Publish once for all suites; also called from post if a preceding stage fails.
 def publishResults(String root) {
     try {
         junit testResults: "${root}/*/junit.xml", allowEmptyResults: false
     } finally {
         def resultPaths = []
-        for (suite in ['api', 'web']) {
+        for (suite in ['api', 'web', 'mobile']) {
             if (fileExists("${root}/${suite}/allure-results")) {
                 resultPaths.add([path: "${root}/${suite}/allure-results"])
             }
@@ -30,6 +30,10 @@ pipeline {
     parameters {
         string(name: 'PYTHON_EXE', defaultValue: 'C:\\Users\\user\\AppData\\Local\\Python\\bin\\python.exe',
                description: 'Python 3.14 executable available to the Windows agent service; absolute path recommended.')
+        booleanParam(name: 'START_ANDROID_EMULATOR', defaultValue: false,
+                     description: 'Start an existing AVD only if emulator-5554 and other emulators are absent.')
+        string(name: 'ANDROID_AVD', defaultValue: 'Pixel_4',
+               description: 'Existing AVD to use when START_ANDROID_EMULATOR is enabled.')
     }
 
     environment {
@@ -91,10 +95,34 @@ pipeline {
                 }
             }
         }
+        stage('Prepare Mobile environment') {
+            steps {
+                bat 'ci\\run-mobile.cmd Prepare'
+            }
+        }
+        stage('Mobile tests') {
+            steps {
+                timeout(time: 16, unit: 'MINUTES') {
+                    script {
+                        def code
+                        withEnv(["REPORT_ROOT=${env.REPORT_ROOT}/mobile",
+                                 "START_ANDROID_EMULATOR=${params.START_ANDROID_EMULATOR}",
+                                 "ANDROID_AVD=${params.ANDROID_AVD}"]) {
+                            code = bat(returnStatus: true, script: 'ci\\run-mobile.cmd Test')
+                        }
+                        if (code == 1) {
+                            unstable('Mobile tests failed; see JUnit results.')
+                        } else if (code != 0) {
+                            error("Mobile infrastructure/pytest error: exit ${code}")
+                        }
+                    }
+                }
+            }
+        }
         stage('Publish results') {
             steps {
                 script {
-                    for (suite in ['api', 'web']) {
+                    for (suite in ['api', 'web', 'mobile']) {
                         if (!fileExists("${env.REPORT_ROOT}/${suite}/junit.xml")) {
                             error("Missing ${suite} JUnit XML; available reports will be published in post.")
                         }
