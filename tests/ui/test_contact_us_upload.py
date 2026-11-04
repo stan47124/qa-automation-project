@@ -1,5 +1,9 @@
 import allure
+import pytest
 from selene import be, have
+
+
+pytestmark = [allure.parent_suite("Web UI"), allure.suite("Automation Exercise")]
 
 
 @allure.epic("QA.Guru graduation project")
@@ -7,6 +11,7 @@ from selene import be, have
 @allure.story("Attach TXT without submission")
 @allure.step("Fill the contact fields and verify the selected TXT without submitting")
 @allure.title("Attach a TXT file without submitting Contact Us")
+@allure.severity(allure.severity_level.MINOR)
 def test_contact_us_file_upload(ui_browser, upload_file):
     ui_browser.open("/contact_us")
     ui_browser.element(".contact-form h2").should(have.exact_text("GET IN TOUCH"))

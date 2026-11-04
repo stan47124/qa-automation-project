@@ -17,6 +17,10 @@ htmlcov/
 artifacts/
 allure-results/
 allure-report/
+allure-history/
+.allure-history/
+history.jsonl
+allure-history.jsonl
 test-results/
 reports/
 screenshots/

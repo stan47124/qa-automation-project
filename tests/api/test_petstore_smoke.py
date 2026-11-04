@@ -1,14 +1,19 @@
 from copy import deepcopy
 
 import allure
+import pytest
 
 from petstore import assert_not_found, assert_pet, assert_status
+
+
+pytestmark = [allure.parent_suite("API"), allure.suite("Swagger Petstore v3")]
 
 
 @allure.epic("QA.Guru graduation project")
 @allure.feature("API: Swagger Petstore v3")
 @allure.story("Create a pet")
 @allure.title("Создание питомца")
+@allure.severity(allure.severity_level.CRITICAL)
 def test_create_pet(api_client, pet_data):
     response = api_client.request("POST", "/pet", json=pet_data)
     assert_status(response, 200)
@@ -22,6 +27,7 @@ def test_create_pet(api_client, pet_data):
 @allure.feature("API: Swagger Petstore v3")
 @allure.story("Read a pet")
 @allure.title("Получение питомца по ID")
+@allure.severity(allure.severity_level.CRITICAL)
 def test_get_pet_by_id(api_client, created_pet):
     response = api_client.request("GET", f"/pet/{created_pet['id']}")
     assert_status(response, 200)
@@ -32,6 +38,7 @@ def test_get_pet_by_id(api_client, created_pet):
 @allure.feature("API: Swagger Petstore v3")
 @allure.story("Update a pet")
 @allure.title("Обновление питомца")
+@allure.severity(allure.severity_level.CRITICAL)
 def test_update_pet(api_client, created_pet):
     updated = deepcopy(created_pet)
     updated.update(
@@ -53,6 +60,7 @@ def test_update_pet(api_client, created_pet):
 @allure.feature("API: Swagger Petstore v3")
 @allure.story("Search by status")
 @allure.title("Поиск питомцев по статусу")
+@allure.severity(allure.severity_level.NORMAL)
 def test_find_pets_by_status(api_client, created_pet):
     response = api_client.request(
         "GET", "/pet/findByStatus", params={"status": created_pet["status"]}
@@ -71,6 +79,7 @@ def test_find_pets_by_status(api_client, created_pet):
 @allure.feature("API: Swagger Petstore v3")
 @allure.story("Upload a pet image")
 @allure.title("Загрузка изображения: фактический ответ Pet")
+@allure.severity(allure.severity_level.NORMAL)
 def test_upload_pet_image(api_client, created_pet, image_data):
     response = api_client.request(
         "POST",
@@ -97,6 +106,7 @@ def test_upload_pet_image(api_client, created_pet, image_data):
 @allure.feature("API: Swagger Petstore v3")
 @allure.story("Delete a pet")
 @allure.title("Удаление питомца с последующим GET → 404")
+@allure.severity(allure.severity_level.CRITICAL)
 def test_delete_pet(api_client, created_pet):
     response = api_client.request("DELETE", f"/pet/{created_pet['id']}")
     assert_status(response, 200)
@@ -107,6 +117,7 @@ def test_delete_pet(api_client, created_pet):
 @allure.feature("API: Swagger Petstore v3")
 @allure.story("Reject an invalid ID")
 @allure.title("Отклонение нечислового ID")
+@allure.severity(allure.severity_level.NORMAL)
 def test_reject_non_numeric_pet_id(api_client, created_pet):
     invalid_id = f"invalid-{created_pet['id']}"
     response = api_client.request("GET", f"/pet/{invalid_id}")
@@ -125,6 +136,7 @@ def test_reject_non_numeric_pet_id(api_client, created_pet):
 @allure.feature("API: Swagger Petstore v3")
 @allure.story("Reject an invalid status")
 @allure.title("Отклонение недопустимого статуса поиска")
+@allure.severity(allure.severity_level.NORMAL)
 def test_reject_invalid_status(api_client, created_pet):
     invalid_status = f"invalid-{created_pet['id']}"
     response = api_client.request(

@@ -10,8 +10,49 @@ def publishResults(String root) {
             }
         }
         if (resultPaths) {
-            allure commandline: 'allure', includeProperties: false,
-                   reportBuildPolicy: 'ALWAYS', results: resultPaths
+            // History is prepared outside WORKSPACE. Allure only changes a transaction copy.
+            def helper = '@.venv\\Scripts\\python.exe ci\\allure_history.py '
+            def historyRoot = params.ALLURE_HISTORY_DIR?.trim()
+            if (!historyRoot) {
+                def rootCode = bat(returnStatus: true,
+                    script: helper + 'default-root > "' + root + '/history-root.txt"')
+                if (rootCode == 0) {
+                    historyRoot = readFile(file: "${root}/history-root.txt", encoding: 'UTF-8').trim()
+                }
+            }
+            def historyFile = null
+            withEnv(["ALLURE_HISTORY_DIR=${historyRoot ?: ''}"]) {
+                if (historyRoot && bat(returnStatus: true, script: helper + 'probe') == 0) {
+                    def inputs = resultPaths.collect { '"' + it.path + '"' }.join(' ')
+                    def prepareCode = bat(returnStatus: true,
+                        script: helper + 'prepare --results ' + inputs + ' > "' + root + '/history-path.txt"')
+                    if (prepareCode == 0) {
+                        historyFile = readFile(file: "${root}/history-path.txt", encoding: 'UTF-8').trim()
+                    }
+                }
+                if (!historyFile) {
+                    // Preserve JUnit/Allure publication, but make persistence failure visible.
+                    unstable('Allure history unavailable; publishing current results without history.')
+                }
+                withEnv(["ALLURE_HISTORY_PATH=${historyFile ?: ''}"]) {
+                    allure commandline: 'allure', configPath: 'allurerc.mjs', includeProperties: false,
+                           reportBuildPolicy: 'ALWAYS', results: resultPaths
+                }
+                // This code is not reached if generation throws or the build is interrupted.
+                if (historyFile) {
+                    def transaction = historyFile.substring(0, historyFile.lastIndexOf('\\'))
+                    withEnv(["ALLURE_HISTORY_TRANSACTION=${transaction}"]) {
+                        def commitCode = bat(returnStatus: true,
+                            script: helper + 'commit --transaction "%ALLURE_HISTORY_TRANSACTION%"')
+                        if (commitCode != 0) {
+                            unstable('Allure generated; history commit failed. Previous snapshots preserved.')
+                        } else if (bat(returnStatus: true,
+                            script: helper + 'export --output "' + root + '/history-snapshot"') != 0) {
+                            unstable('Allure history committed; snapshot archive export failed.')
+                        }
+                    }
+                }
+            }
         } else {
             echo 'Allure results are unavailable; check pytest startup errors.'
         }
@@ -36,6 +77,8 @@ pipeline {
                description: 'Python 3.14 executable available to the Windows agent service; absolute path recommended.')
         string(name: 'ANDROID_AVD', defaultValue: 'Pixel_4',
                description: 'Existing AVD to start automatically if emulator-5554 is absent.')
+        string(name: 'ALLURE_HISTORY_DIR', defaultValue: '',
+               description: 'Persistent history root outside WORKSPACE. Empty uses agent LOCALAPPDATA/QA-Guru/allure-history.')
     }
 
     environment {
@@ -46,7 +89,10 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                checkout scm
+                script {
+                    def scmInfo = checkout scm
+                    env.QA_HISTORY_BRANCH = scmInfo.GIT_BRANCH ?: env.BRANCH_NAME ?: ''
+                }
             }
         }
         stage('Prepare API environment') {

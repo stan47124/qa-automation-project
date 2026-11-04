@@ -1,11 +1,16 @@
 import allure
+import pytest
 from selene import be, have
+
+
+pytestmark = [allure.parent_suite("Web UI"), allure.suite("Automation Exercise")]
 
 
 @allure.epic("QA.Guru graduation project")
 @allure.feature("Web UI: Automation Exercise")
 @allure.story("Home page")
 @allure.title("Главная страница доступна")
+@allure.severity(allure.severity_level.NORMAL)
 def test_home_page(storefront):
     storefront.open_home()
     browser = storefront.browser
@@ -18,6 +23,7 @@ def test_home_page(storefront):
 @allure.feature("Web UI: Automation Exercise")
 @allure.story("Products navigation")
 @allure.title("Переход на страницу Products")
+@allure.severity(allure.severity_level.NORMAL)
 def test_products_navigation(storefront, product):
     storefront.open_products()
     storefront.browser.element("#search_product").should(be.visible)
@@ -28,6 +34,7 @@ def test_products_navigation(storefront, product):
 @allure.feature("Web UI: Automation Exercise")
 @allure.story("Product details")
 @allure.title("Карточка выбранного товара и его данные")
+@allure.severity(allure.severity_level.CRITICAL)
 def test_product_details(storefront, product):
     storefront.open_product(product)
     details = storefront.browser.element(".product-information")
@@ -43,6 +50,7 @@ def test_product_details(storefront, product):
 @allure.feature("Web UI: Automation Exercise")
 @allure.story("Add to cart")
 @allure.title("Добавление товара в гостевую корзину")
+@allure.severity(allure.severity_level.CRITICAL)
 def test_add_product_to_cart(storefront, product):
     storefront.open_product(product)
     storefront.add_to_cart()
@@ -55,6 +63,7 @@ def test_add_product_to_cart(storefront, product):
 @allure.feature("Web UI: Automation Exercise")
 @allure.story("Cart contents")
 @allure.title("Товар, цена и количество в корзине")
+@allure.severity(allure.severity_level.CRITICAL)
 def test_cart_product_and_quantity(storefront, product):
     storefront.open_product(product)
     storefront.add_to_cart()
@@ -66,6 +75,7 @@ def test_cart_product_and_quantity(storefront, product):
 @allure.feature("Web UI: Automation Exercise")
 @allure.story("Select product quantity")
 @allure.title("Выбор количества на странице товара и проверка корзины")
+@allure.severity(allure.severity_level.CRITICAL)
 def test_selected_quantity_is_kept_in_cart(storefront, product):
     storefront.open_product(product)
     quantity = storefront.browser.element("#quantity")

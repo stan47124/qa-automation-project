@@ -1,4 +1,5 @@
 import allure
+import pytest
 
 from appium.webdriver.common.appiumby import AppiumBy
 from selenium.webdriver.support import expected_conditions as EC
@@ -7,10 +8,14 @@ from material_files import resource, text_resource
 from mobile_config import BASE_DIRECTORY
 
 
+pytestmark = [allure.parent_suite("Mobile"), allure.suite("Material Files")]
+
+
 @allure.epic("QA.Guru graduation project")
 @allure.feature("Mobile: Material Files")
 @allure.story("Open an isolated directory")
 @allure.title("Open an isolated directory")
+@allure.severity(allure.severity_level.NORMAL)
 def test_open_qa_guru_folder(files_screen, mobile_workspace):
     # qa_guru was opened by the fixture; verify only this test's own sample.
     files_screen.open_folder(mobile_workspace)
@@ -21,6 +26,7 @@ def test_open_qa_guru_folder(files_screen, mobile_workspace):
 @allure.feature("Mobile: Material Files")
 @allure.story("Create a directory")
 @allure.title("Create a directory")
+@allure.severity(allure.severity_level.CRITICAL)
 def test_create_folder(files_screen, mobile_workspace):
     files_screen.open_folder(mobile_workspace)
     folder_name = f"created_{mobile_workspace}"
@@ -34,6 +40,7 @@ def test_create_folder(files_screen, mobile_workspace):
 @allure.feature("Mobile: Material Files")
 @allure.story("Rename a file")
 @allure.title("Rename a file")
+@allure.severity(allure.severity_level.NORMAL)
 def test_rename_file(files_screen, mobile_workspace):
     files_screen.open_folder(mobile_workspace)
     old_name = text_resource("nameText", "sample.txt")
@@ -52,6 +59,7 @@ def test_rename_file(files_screen, mobile_workspace):
 @allure.feature("Mobile: Material Files")
 @allure.story("Copy a file")
 @allure.title("Copy a file")
+@allure.severity(allure.severity_level.CRITICAL)
 def test_copy_file(files_screen, mobile_workspace, adb_shell):
     directory = BASE_DIRECTORY / mobile_workspace
     original_content = adb_shell(f"cat {directory}/sample.txt")
@@ -83,6 +91,7 @@ def test_copy_file(files_screen, mobile_workspace, adb_shell):
 @allure.feature("Mobile: Material Files")
 @allure.story("Delete a file")
 @allure.title("Delete a file")
+@allure.severity(allure.severity_level.CRITICAL)
 def test_delete_file(files_screen, mobile_workspace, adb_shell):
     directory = BASE_DIRECTORY / mobile_workspace
     adb_shell(f"test -f {directory}/sample.txt")
