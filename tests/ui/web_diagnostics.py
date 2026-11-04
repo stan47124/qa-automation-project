@@ -1,61 +1,81 @@
-"""Allowlisted browser state: no HTML, cookies, form contents or URL tokens."""
-
+"""Allowlisted evidence; never capture login or full HTML."""
 import json
-import re
 from urllib.parse import urlsplit
-
 import allure
+from selenium.webdriver.common.by import By
 
-KNOWN_TITLES = {
-    'Automation Exercise', 'Automation Exercise - All Products',
-    'Automation Exercise - Contact Us', 'Automation Exercise - Product Details',
-    'Automation Exercise - Checkout', 'Automation Exercise - Cart',
-    'One moment, please...', 'Just a moment...', 'Секундочку…',
+KNOWN_TITLES = {"Swag Labs", "One moment, please...", "Just a moment...", "Секундочку…", "403 Forbidden", "Access Denied"}
+CONTAINERS = {
+    "/inventory.html": '[data-test="inventory-container"]',
+    "/cart.html": "#cart_contents_container",
+    "/checkout-step-one.html": "#checkout_info_container",
+    "/checkout-step-two.html": "#checkout_summary_container",
+    "/checkout-complete.html": "#checkout_complete_container",
 }
 PAGE_FLAGS = """
 return {
   document_ready: document.readyState === 'complete',
-  home_marker: !!document.querySelector('.features_items .title'),
-  contact_marker: !!document.querySelector('.contact-form h2'),
-  challenge_title: /one moment|just a moment|секундочку/i.test(document.title),
-  challenge_message: /please wait while your request is being verified|Пожалуйста, подождите|запрос будет проверен/i.test(document.body?.innerText || '')
+  catalog_marker: !!document.querySelector('[data-test="inventory-container"]'),
+  cart_marker: !!document.querySelector('#cart_contents_container'),
+  checkout_marker: !!document.querySelector('#checkout_info_container,#checkout_summary_container,#checkout_complete_container'),
+  login_marker: !!document.querySelector('#login-button,#user-name'),
+  password_input: !!document.querySelector('input[type="password"]'),
+  challenge_title: /one moment|just a moment|секундочку|access denied|403 forbidden/i.test(document.title),
+  challenge_message: /verify you are human|checking your browser|запрос будет проверен/i.test(document.body?.innerText || ''),
+  captcha: [...document.querySelectorAll('iframe[src*="captcha"],iframe[title*="challenge"]')].some(e => e.getBoundingClientRect().height > 0)
 };
 """
-
 
 def safe_url(value):
     try:
         parsed = urlsplit(value)
-        if parsed.scheme not in {'http', 'https'} or parsed.hostname not in {
-            'automationexercise.com', 'www.automationexercise.com',
-        }:
-            return '[unexpected URL omitted]'
-        path = parsed.path
-        if not re.fullmatch(r'/(?:contact_us|products|view_cart|product_details/[0-9]+)?', path):
-            path = '/[other path omitted]'
-        return f'{parsed.scheme}://{parsed.hostname}{path}'
+        if parsed.scheme != "https" or parsed.hostname != "www.saucedemo.com":
+            return "[unexpected URL omitted]"
+        path = parsed.path if parsed.path in {"/", *CONTAINERS} else "/[other path omitted]"
+        return "https://www.saucedemo.com" + path
     except (TypeError, ValueError):
-        return '[invalid URL omitted]'
-
+        return "[invalid URL omitted]"
 
 def browser_state(driver):
-    title = driver.title
     flags = driver.execute_script(PAGE_FLAGS)
-    # Copy known booleans only; never serialize an arbitrary browser response.
     result = {key: flags.get(key) is True for key in (
-        'document_ready', 'home_marker', 'contact_marker', 'challenge_title', 'challenge_message',
+        "document_ready", "catalog_marker", "cart_marker", "checkout_marker",
+        "login_marker", "password_input", "challenge_title", "challenge_message", "captcha",
     )}
+    title = driver.title
     result.update(url=safe_url(driver.current_url),
-                  title=title if title in KNOWN_TITLES else '[unrecognized title omitted]')
-    result['request_check_page'] = result['challenge_title'] or result['challenge_message']
+                  title=title if title in KNOWN_TITLES else "[unrecognized title omitted]")
+    result["request_check_page"] = result["challenge_title"] or result["challenge_message"] or result["captcha"]
     return result
-
 
 def attach_browser_state(driver, phase):
     try:
         state = browser_state(driver)
     except Exception as error:
-        state = {'diagnostic_error_type': type(error).__name__}
-    allure.attach(json.dumps(state, ensure_ascii=False),
-                  name=f'Web UI: {phase} page state (allowlisted)',
-                  attachment_type=allure.attachment_type.JSON)
+        state = {"diagnostic_error_type": type(error).__name__}
+    try:
+        allure.attach(json.dumps(state, ensure_ascii=False),
+                      name=f"Web UI: {phase} page state (allowlisted)",
+                      attachment_type=allure.attachment_type.JSON)
+    except Exception:
+        pass
+
+def attach_failure(driver, phase):
+    attach_browser_state(driver, phase)
+    try:
+        state = browser_state(driver)
+        path = urlsplit(state["url"]).path
+        if state["title"] != "Swag Labs" or path not in CONTAINERS or state["login_marker"] or state["password_input"] or state["request_check_page"]:
+            return
+        # Container screenshot excludes the login footer; stale lookup fails safely.
+        png = driver.find_element(By.CSS_SELECTOR, CONTAINERS[path]).screenshot_as_png
+        if not png.startswith(b"\x89PNG\r\n\x1a\n"):
+            raise ValueError("Expected PNG evidence")
+        allure.attach(png, name=f"Web UI: {phase} safe page container",
+                      attachment_type=allure.attachment_type.PNG)
+    except Exception as error:
+        try:
+            allure.attach(type(error).__name__, name="Web UI: screenshot diagnostic",
+                          attachment_type=allure.attachment_type.TEXT)
+        except Exception:
+            pass

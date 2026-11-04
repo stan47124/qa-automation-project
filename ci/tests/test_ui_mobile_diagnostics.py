@@ -18,14 +18,14 @@ from mobile_config import UIAUTOMATOR2_SERVER_LAUNCH_TIMEOUT_MS
 
 
 @pytest.mark.parametrize('url,expected', [
-    ('https://automationexercise.com/contact_us?token=unit-secret#unit-secret',
-     'https://automationexercise.com/contact_us'),
-    ('https://unit-secret:unit-secret@automationexercise.com/products',
-     'https://automationexercise.com/products'),
-    ('https://automationexercise.com/product_details/1',
-     'https://automationexercise.com/product_details/1'),
-    ('https://automationexercise.com/unit-secret',
-     'https://automationexercise.com/[other path omitted]'),
+    ('https://www.saucedemo.com/cart.html?token=unit-secret#unit-secret',
+     'https://www.saucedemo.com/cart.html'),
+    ('https://unit-secret:unit-secret@www.saucedemo.com/inventory.html',
+     'https://www.saucedemo.com/inventory.html'),
+    ('https://www.saucedemo.com/checkout-step-one.html',
+     'https://www.saucedemo.com/checkout-step-one.html'),
+    ('https://www.saucedemo.com/unit-secret',
+     'https://www.saucedemo.com/[other path omitted]'),
     ('https://unit-secret.example/unit-secret', '[unexpected URL omitted]'),
     ('javascript:unit-secret', '[unexpected URL omitted]'),
 ])
@@ -35,24 +35,24 @@ def test_url_never_logs_credentials_query_fragment_or_unknown_path(url, expected
 
 
 def test_browser_state_reports_observed_block_page_without_raw_body():
-    driver = Mock(title='Секундочку…', current_url='https://automationexercise.com/')
+    driver = Mock(title='Секундочку…', current_url='https://www.saucedemo.com/')
     driver.execute_script.return_value = {
         'document_ready': True, 'challenge_title': True, 'challenge_message': True,
         'body': 'unit-secret', 'cookies': 'unit-secret',
     }
     state = web.browser_state(driver)
     assert state['request_check_page'] is True
-    assert state['home_marker'] is False
+    assert state['catalog_marker'] is False
     assert state['title'] == 'Секундочку…'
     assert 'unit-secret' not in json.dumps(state)
 
 
 def test_unknown_title_and_nonboolean_values_are_not_attached():
-    driver = Mock(title='unit-secret', current_url='https://automationexercise.com/')
-    driver.execute_script.return_value = {'home_marker': 'unit-secret', 'extra': 'unit-secret'}
+    driver = Mock(title='unit-secret', current_url='https://www.saucedemo.com/')
+    driver.execute_script.return_value = {'catalog_marker': 'unit-secret', 'extra': 'unit-secret'}
     state = web.browser_state(driver)
     assert state['title'] == '[unrecognized title omitted]'
-    assert state['home_marker'] is False
+    assert state['catalog_marker'] is False
     assert 'unit-secret' not in json.dumps(state)
 
 
@@ -163,7 +163,7 @@ def test_real_allure_json_attachments_for_diagnostic_unit_fixture():
                                    launch_timeout_ms=60000, run=Mock(side_effect=OSError),
                                    clock=Mock(side_effect=[1, 2]))
     assert result is not None
-    driver = Mock(title='One moment, please...', current_url='https://automationexercise.com/')
+    driver = Mock(title='One moment, please...', current_url='https://www.saucedemo.com/')
     driver.execute_script.return_value = {'challenge_title': True, 'document_ready': True}
     web.attach_browser_state(driver, 'unit-fixture')
     with pytest.raises(RuntimeError, match='expected unit failure'):
