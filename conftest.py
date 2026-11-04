@@ -46,6 +46,15 @@ def pytest_runtest_makereport(item, call):
     report = outcome.get_result()
     if not report.failed:
         return
+    for name, diagnostic in getattr(item, "_qa_failure_diagnostics", {}).items():
+        try:
+            diagnostic(report.when)
+        except Exception as error:
+            try:
+                allure.attach(type(error).__name__, name=f"{name}: diagnostic unavailable",
+                              attachment_type=allure.attachment_type.TEXT)
+            except Exception:
+                pass
     # Fixtures register only already-created sessions. Never create a driver here.
     for kind, driver in getattr(item, "_qa_drivers", {}).items():
         try:

@@ -6,6 +6,7 @@ from selene import Browser, Config
 from selenium import webdriver
 
 from storefront import Storefront
+from web_diagnostics import attach_browser_state
 
 
 @pytest.fixture
@@ -18,6 +19,9 @@ def ui_browser(tmp_path, request):
     # ChromeDriver creates a separate temporary profile for each new session.
     driver = webdriver.Chrome(options=options)
     request.node._qa_drivers = {"Web UI": driver}
+    request.node._qa_failure_diagnostics = {
+        "Web UI page state": lambda phase: attach_browser_state(driver, phase),
+    }
     try:
         driver.set_page_load_timeout(45)
         yield Browser(

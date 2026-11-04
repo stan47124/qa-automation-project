@@ -16,7 +16,9 @@ from mobile_config import (
     DEVICE,
     PACKAGE,
     TIMEOUT_SECONDS,
+    UIAUTOMATOR2_SERVER_LAUNCH_TIMEOUT_MS,
 )
+from mobile_session import create_session
 
 
 @pytest.fixture
@@ -30,9 +32,14 @@ def mobile_driver(request):
             "appium:appActivity": APP_ACTIVITY,
             "appium:noReset": True,
             "appium:forceAppLaunch": True,
+            "appium:uiautomator2ServerLaunchTimeout": UIAUTOMATOR2_SERVER_LAUNCH_TIMEOUT_MS,
         }
     )
-    driver = webdriver.Remote(APPIUM_URL, options=options)
+    driver = create_session(
+        lambda: webdriver.Remote(APPIUM_URL, options=options),
+        adb=shutil.which("adb") or "adb", device=DEVICE,
+        launch_timeout_ms=UIAUTOMATOR2_SERVER_LAUNCH_TIMEOUT_MS,
+    )
     request.node._qa_drivers = {"Android": driver}
     try:
         yield driver
