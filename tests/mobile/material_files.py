@@ -46,6 +46,12 @@ class FilesScreen:
     def visible(self, locator):
         return self.wait.until(EC.visibility_of_element_located(locator))
 
+    @allure.step("Wait until the UI element is visible: {locator}")
+    def wait_visible(self, locator):
+        # Return the confirmed condition, not an element to query again outside
+        # the wait. Each poll looks up the current node after a list redraw.
+        return self.wait.until(lambda driver: driver.find_element(*locator).is_displayed())
+
     @allure.step("Open the context menu of file {name}")
     def open_file_menu(self, name):
         self.visible(text_resource("nameText", name))

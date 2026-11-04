@@ -60,6 +60,7 @@ def test_rename_file(files_screen, mobile_workspace):
 @allure.story("Copy a file")
 @allure.title("Copy a file")
 @allure.severity(allure.severity_level.CRITICAL)
+@pytest.mark.usefixtures("copy_failure_diagnostics")
 def test_copy_file(files_screen, mobile_workspace, adb_shell):
     directory = BASE_DIRECTORY / mobile_workspace
     original_content = adb_shell(f"cat {directory}/sample.txt")
@@ -76,13 +77,13 @@ def test_copy_file(files_screen, mobile_workspace, adb_shell):
     files_screen.visible(resource("emptyView"))
     assert not files_screen.driver.find_elements(*sample)
     files_screen.click(resource("action_paste"))
-    assert files_screen.visible(sample).is_displayed()
+    assert files_screen.wait_visible(sample)
 
     # Check that Copy kept the source, rather than moving it.
     files_screen.click(text_resource("text", mobile_workspace))
-    assert files_screen.visible(sample).is_displayed()
+    assert files_screen.wait_visible(sample)
     files_screen.open_folder("destination")
-    assert files_screen.visible(sample).is_displayed()
+    assert files_screen.wait_visible(sample)
     assert adb_shell(f"cat {directory}/sample.txt") == original_content
     assert adb_shell(f"cat {directory}/destination/sample.txt") == original_content
 

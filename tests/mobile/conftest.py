@@ -19,6 +19,7 @@ from mobile_config import (
     UIAUTOMATOR2_SERVER_LAUNCH_TIMEOUT_MS,
 )
 from mobile_session import create_session
+from copy_diagnostics import attach_copy_failure
 
 
 @pytest.fixture
@@ -89,6 +90,18 @@ def mobile_workspace(adb_shell):
         assert re.fullmatch(r"test_[0-9a-f]{32}", directory.name)
         adb_shell(f"rm -rf -- {shlex.quote(str(directory))}")
         adb_shell(f"test ! -e {shlex.quote(str(directory))}")
+
+
+@pytest.fixture
+def copy_failure_diagnostics(request, mobile_workspace, mobile_driver):
+    # makereport(call) runs before workspace cleanup and driver.quit(). The root
+    # hook already captures a screenshot; register only the additional evidence.
+    request.node._qa_failure_diagnostics = {
+        **getattr(request.node, "_qa_failure_diagnostics", {}),
+        "Mobile copy": lambda phase: attach_copy_failure(
+            mobile_driver, mobile_workspace, adb=shutil.which("adb") or "adb", device=DEVICE,
+        ),
+    }
 
 
 @pytest.fixture
