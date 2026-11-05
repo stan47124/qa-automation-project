@@ -220,12 +220,12 @@ def test_output_outside_artifacts_is_rejected_before_browser_probe(setup):
     assert not manager.output.exists()
 
 
-@pytest.mark.parametrize('collectonly,enabled', [(False, False), (True, True)])
-def test_plugin_is_inert_when_disabled_or_collecting(tmp_path, monkeypatch, collectonly, enabled):
+@pytest.mark.parametrize('collectonly,output', [(False, None), (False, ''), (True, 'enabled')])
+def test_plugin_is_inert_when_disabled_or_collecting(tmp_path, monkeypatch, collectonly, output):
     config = configuration(tmp_path)
     config.option.collectonly = collectonly
-    if enabled:
-        monkeypatch.setenv(monitor.ENVIRONMENT, str(tmp_path/'artifacts/diagnostics'))
+    if output is not None:
+        monkeypatch.setenv(monitor.ENVIRONMENT, str(tmp_path/'artifacts/diagnostics') if output else '')
     else:
         monkeypatch.delenv(monitor.ENVIRONMENT, raising=False)
     monitor.pytest_configure(config)

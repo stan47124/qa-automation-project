@@ -4,12 +4,8 @@ import allure
 import pytest
 from selene import Browser, Config
 from selenium import webdriver
-from saucedemo.data import BASE_URL, STANDARD, BACKPACK
-from saucedemo.login_page import LoginPage
-from saucedemo.inventory_page import InventoryPage
-from saucedemo.cart_page import CartPage
-from saucedemo.checkout_page import CheckoutPage
-from web_diagnostics import attach_failure
+from storefront import Storefront
+from automation_exercise_diagnostics import attach_failure
 
 @pytest.fixture
 def ui_browser(tmp_path, request):
@@ -33,7 +29,7 @@ def ui_browser(tmp_path, request):
     try:
         driver.set_page_load_timeout(45)
         yield Browser(Config(
-            driver=driver, base_url=BASE_URL, timeout=15,
+            driver=driver, base_url="https://automationexercise.com", timeout=15,
             reports_folder=str(tmp_path / "selene"),
             save_screenshot_on_failure=False, save_page_source_on_failure=False,
             log_outer_html_on_failure=False,
@@ -53,30 +49,24 @@ def ui_browser(tmp_path, request):
                 pass
 
 @pytest.fixture
-def login_page(ui_browser):
-    return LoginPage(ui_browser)
+def storefront(ui_browser):
+    return Storefront(ui_browser)
+
 
 @pytest.fixture
-def authenticated_inventory(login_page, ui_browser):
-    login_page.open().submit(STANDARD)
-    page = InventoryPage(ui_browser)
-    page.should_be_opened()
-    return page
+def product():
+    # Verified against the product card and details, never selected by list order.
+    return {
+        "id": "1",
+        "name": "Blue Top",
+        "price": 500,
+        "category": "Women > Tops",
+        "brand": "Polo",
+    }
+
 
 @pytest.fixture
-def cart_page(ui_browser):
-    return CartPage(ui_browser)
-
-@pytest.fixture
-def cart_with_backpack(authenticated_inventory, cart_page):
-    authenticated_inventory.add(BACKPACK)
-    authenticated_inventory.open_cart()
-    cart_page.should_contain(BACKPACK)
-    return cart_page
-
-@pytest.fixture
-def checkout_started(cart_with_backpack, ui_browser):
-    cart_with_backpack.checkout()
-    page = CheckoutPage(ui_browser)
-    page.should_show_information()
-    return page
+def upload_file(tmp_path):
+    upload_path = tmp_path / "contact_upload.txt"
+    upload_path.write_text("QA.Guru TXT upload: do not submit the contact form.", encoding="utf-8")
+    return upload_path

@@ -10,29 +10,29 @@ import pytest
 
 CRITICAL = {
     'test_create_pet', 'test_get_pet_by_id', 'test_update_pet', 'test_delete_pet',
-    'test_successful_login', 'test_add_product_to_cart', 'test_remove_product_from_cart',
-    'test_complete_checkout', 'test_material_files_main_screen',
+    'test_product_details', 'test_add_product_to_cart', 'test_cart_product_and_quantity',
+    'test_selected_quantity_is_kept_in_cart', 'test_material_files_main_screen',
     'test_create_folder', 'test_copy_file', 'test_delete_file',
 }
 NORMAL = {
     'test_find_pets_by_status', 'test_upload_pet_image', 'test_reject_non_numeric_pet_id',
-    'test_reject_invalid_status', 'test_invalid_credentials', 'test_locked_out_user',
-    'test_sort_products_by_price', 'test_checkout_required_fields', 'test_open_qa_guru_folder', 'test_rename_file',
+    'test_reject_invalid_status', 'test_home_page', 'test_products_navigation',
+    'test_search_for_existing_product', 'test_open_qa_guru_folder', 'test_rename_file',
 }
-MINOR = set()
+MINOR = {'test_contact_us_file_upload'}
 SYSTEMS = {'api': ('API', 'Swagger Petstore v3'),
-           'ui': ('Web UI', 'SauceDemo'), 'mobile': ('Mobile', 'Material Files')}
+           'ui': ('Web UI', 'Automation Exercise'), 'mobile': ('Mobile', 'Material Files')}
 
 
 UI_CASES = {
-    'test_successful_login': ('SD-UI-001', 'Authentication'),
-    'test_invalid_credentials': ('SD-UI-002', 'Authentication'),
-    'test_locked_out_user': ('SD-UI-003', 'Authentication'),
-    'test_sort_products_by_price': ('SD-UI-004', 'Inventory'),
-    'test_add_product_to_cart': ('SD-UI-005', 'Cart'),
-    'test_remove_product_from_cart': ('SD-UI-006', 'Cart'),
-    'test_complete_checkout': ('SD-UI-007', 'Checkout'),
-    'test_checkout_required_fields': ('SD-UI-008', 'Checkout'),
+    'test_home_page': 'Home page',
+    'test_products_navigation': 'Products navigation',
+    'test_product_details': 'Product details',
+    'test_add_product_to_cart': 'Add to cart',
+    'test_cart_product_and_quantity': 'Cart contents',
+    'test_selected_quantity_is_kept_in_cart': 'Select product quantity',
+    'test_search_for_existing_product': 'Product search',
+    'test_contact_us_file_upload': 'Attach TXT without submission',
 }
 
 
@@ -83,7 +83,7 @@ class MetadataAudit:
             expected = {'epic': 'QA.Guru graduation project', 'feature': f'{parent}: {suite}',
                         'parentSuite': parent, 'suite': suite, 'severity': expected_severity}
             if item.name in UI_CASES:
-                expected['as_id'], expected['story'] = UI_CASES[item.name]
+                expected['story'] = UI_CASES[item.name]
             for label, value in expected.items():
                 values = [actual for name, actual in labels if name == label]
                 if values != [value]:
@@ -108,7 +108,7 @@ def main():
         return int(code)
     severity = Counter(getattr(result['labels']['severity'], 'value', result['labels']['severity'])
                        for result in audit.results)
-    if severity != {'critical': 12, 'normal': 10}:
+    if severity != {'critical': 12, 'normal': 9, 'minor': 1}:
         audit.errors.append('Incorrect severity totals.')
     if args.baseline:
         previous = [json.loads(file.read_text(encoding='utf-8')) for file in args.baseline.glob('*-result.json')]

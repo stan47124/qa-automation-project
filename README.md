@@ -2,7 +2,7 @@
 
 ## Автоматизация API, Web UI и Mobile тестирования
 
-Три системы — Swagger Petstore, SauceDemo и Material Files — в одном проекте на Python и pytest. Независимые наборы тестов, общий Jenkins Pipeline и единая отчётность Allure и JUnit.
+Три системы — Swagger Petstore, Automation Exercise и Material Files — в одном проекте на Python и pytest. Независимые наборы тестов, общий Jenkins Pipeline и единая отчётность Allure и JUnit.
 
 **API — 8 · Web UI — 8 · Mobile — 6 · Всего — 22 автотеста**
 
@@ -28,7 +28,7 @@
 | Направление | Система | Что тестируется |
 | --- | --- | --- |
 | API | [Swagger Petstore v3](https://petstore3.swagger.io/) · [базовый URL API](https://petstore3.swagger.io/api/v3) | Жизненный цикл питомца, поиск и обработка некорректных параметров |
-| Web UI | [SauceDemo](https://www.saucedemo.com/) | Авторизация, сортировка каталога, корзина и демонстрационный checkout |
+| Web UI | [Automation Exercise](https://automationexercise.com/) | Каталог, поиск, данные товара, гостевая корзина и выбор TXT без отправки формы |
 | Mobile | [Material Files](https://github.com/zhanghai/MaterialFiles) | Файловый менеджер Android: навигация и операции с тестовыми файлами на локальном AVD `Pixel_4` |
 
 ## Реализованные проверки
@@ -50,16 +50,16 @@
 
 ### Web UI — 8 тестов
 
-Исходный код: [tests/ui/](tests/ui/). Четыре Page Object, отдельная сессия на тест и публичные демонстрационные данные. [Запуск, диагностика и переход истории](docs/web-ui-saucedemo.md).
+Исходный код: [tests/ui/](tests/ui/). Page Object `Storefront`, отдельная Chrome-сессия на тест и явные ожидания Selene. [Возвращение набора, метаданные и диагностика](docs/web-ui-automation-exercise.md).
 
-- [x] Успешная авторизация и загрузка каталога.
-- [x] Отказ при неверных данных авторизации.
-- [x] Отказ заблокированному демонстрационному пользователю.
-- [x] Полный порядок товаров по цене в обоих направлениях с сохранением состава.
-- [x] Добавление Backpack: счётчик, имя, цена и количество в корзине.
-- [x] Удаление товара и пустая корзина.
-- [x] Checkout: товар, суммы через Decimal, подтверждение и очистка корзины.
-- [x] Независимая валидация имени, фамилии и индекса с восстановлением формы.
+- [x] Главная страница и ссылки навигации.
+- [x] Переход в Products и карточка выбранного товара.
+- [x] Поиск существующего товара.
+- [x] Данные товара: цена, категория, наличие, состояние и бренд.
+- [x] Добавление товара в гостевую корзину.
+- [x] Товар, цена и количество в корзине.
+- [x] Сохранение выбранного количества в корзине.
+- [x] Выбор TXT в Contact Us без отправки формы.
 
 ### Mobile — 6 тестов
 
@@ -86,7 +86,7 @@
 qa-automation-project/
 ├── tests/
 │   ├── api/              # PetstoreClient, фикстуры и 8 API-тестов
-│   ├── ui/               # SauceDemo Page Objects, Chrome и 8 Web UI-тестов
+│   ├── ui/               # Storefront, Chrome и 8 Automation Exercise-тестов
 │   └── mobile/           # FilesScreen, Appium/ADB и 6 Mobile-тестов
 ├── ci/
 │   ├── run-*.cmd         # Подготовка и запуск наборов на Windows
@@ -169,7 +169,7 @@ cmd /d /c ci\run-mobile.cmd Test
 
 ## Jenkins CI
 
-**Исторический полный SUCCESS, 22 passed (№22) относился к Automation Exercise.** Новый набор SauceDemo проверен локально: 8 passed headed и 8 passed headless. Полный Jenkins-прогон с SauceDemo ещё не выполнялся. Pipeline и публикация JUnit/Allure сохранены; детали — в [инструкции SauceDemo](docs/web-ui-saucedemo.md).
+**Исторический полный SUCCESS, 22 passed (№22) относился к Automation Exercise.** Локально подготовлено возвращение восьми сценариев этого сайта; новый результат CI после возвращения ещё не получен. Pipeline и публикация JUnit/Allure сохранены, WebDriver Monitor отключён пустой переменной конфигурации. [Подробности возвращения](docs/web-ui-automation-exercise.md).
 
 Jenkins работает **локально**. Его интерфейс и отчёты не доступны внешним посетителям GitHub; публичная ссылка на сборку не публикуется.
 
