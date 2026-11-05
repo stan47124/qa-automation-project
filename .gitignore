@@ -5,6 +5,7 @@ venv/
 env/
 __pycache__/
 *.py[cod]
+*.class
 .pytest_cache*/
 .mypy_cache/
 .ruff_cache/
@@ -64,6 +65,9 @@ auth.json
 .ssh/
 .android/
 .codex/
+.jenkins-cli/
+agent-secret.txt
+codex-ci-auth.txt
 
 # IDEs: share only reviewed settings and extension recommendations
 .idea/

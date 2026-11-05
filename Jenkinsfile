@@ -132,7 +132,9 @@ pipeline {
             steps {
                 script {
                     def code
-                    withEnv(['HEADLESS=true', "REPORT_ROOT=${env.REPORT_ROOT}/web"]) {
+                    withEnv(['HEADLESS=true', "REPORT_ROOT=${env.REPORT_ROOT}/web",
+                             "QA_WEBDRIVER_DIAGNOSTICS=${env.REPORT_ROOT}/webdriver-diagnostics",
+                             "PYTEST_ADDOPTS=${env.PYTEST_ADDOPTS ?: ''} -p ci.diagnostics.webdriver_monitor"]) {
                         code = bat(returnStatus: true, script: 'ci\\run-web.cmd Test')
                     }
                     if (code == 1) {
