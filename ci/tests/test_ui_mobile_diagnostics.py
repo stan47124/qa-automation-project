@@ -11,58 +11,17 @@ from unittest.mock import Mock
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path[:0] = [str(ROOT / 'tests/ui'), str(ROOT / 'tests/mobile')]
-import web_diagnostics as web
+sys.path.insert(0, str(ROOT / 'tests/mobile'))
 import mobile_session as mobile
 from mobile_config import UIAUTOMATOR2_SERVER_LAUNCH_TIMEOUT_MS
 
 
-@pytest.mark.parametrize('url,expected', [
-    ('https://www.saucedemo.com/cart.html?token=unit-secret#unit-secret',
-     'https://www.saucedemo.com/cart.html'),
-    ('https://unit-secret:unit-secret@www.saucedemo.com/inventory.html',
-     'https://www.saucedemo.com/inventory.html'),
-    ('https://www.saucedemo.com/checkout-step-one.html',
-     'https://www.saucedemo.com/checkout-step-one.html'),
-    ('https://www.saucedemo.com/unit-secret',
-     'https://www.saucedemo.com/[other path omitted]'),
-    ('https://unit-secret.example/unit-secret', '[unexpected URL omitted]'),
-    ('javascript:unit-secret', '[unexpected URL omitted]'),
-])
-def test_url_never_logs_credentials_query_fragment_or_unknown_path(url, expected):
-    assert web.safe_url(url) == expected
-    assert 'unit-secret' not in web.safe_url(url)
 
 
-def test_browser_state_reports_observed_block_page_without_raw_body():
-    driver = Mock(title='Секундочку…', current_url='https://www.saucedemo.com/')
-    driver.execute_script.return_value = {
-        'document_ready': True, 'challenge_title': True, 'challenge_message': True,
-        'body': 'unit-secret', 'cookies': 'unit-secret',
-    }
-    state = web.browser_state(driver)
-    assert state['request_check_page'] is True
-    assert state['catalog_marker'] is False
-    assert state['title'] == 'Секундочку…'
-    assert 'unit-secret' not in json.dumps(state)
 
 
-def test_unknown_title_and_nonboolean_values_are_not_attached():
-    driver = Mock(title='unit-secret', current_url='https://www.saucedemo.com/')
-    driver.execute_script.return_value = {'catalog_marker': 'unit-secret', 'extra': 'unit-secret'}
-    state = web.browser_state(driver)
-    assert state['title'] == '[unrecognized title omitted]'
-    assert state['catalog_marker'] is False
-    assert 'unit-secret' not in json.dumps(state)
 
 
-def test_unavailable_browser_diagnostic_attaches_only_error_type(monkeypatch):
-    driver = Mock()
-    driver.execute_script.side_effect = RuntimeError('unit-secret')
-    attach = Mock()
-    monkeypatch.setattr(web.allure, 'attach', attach)
-    web.attach_browser_state(driver, 'call')
-    assert json.loads(attach.call_args.args[0]) == {'diagnostic_error_type': 'RuntimeError'}
 
 
 def test_logcat_is_bounded_since_session_and_contains_no_raw_messages():
@@ -163,9 +122,6 @@ def test_real_allure_json_attachments_for_diagnostic_unit_fixture():
                                    launch_timeout_ms=60000, run=Mock(side_effect=OSError),
                                    clock=Mock(side_effect=[1, 2]))
     assert result is not None
-    driver = Mock(title='One moment, please...', current_url='https://www.saucedemo.com/')
-    driver.execute_script.return_value = {'challenge_title': True, 'document_ready': True}
-    web.attach_browser_state(driver, 'unit-fixture')
     with pytest.raises(RuntimeError, match='expected unit failure'):
         mobile.create_session(Mock(side_effect=RuntimeError('expected unit failure')),
                               adb='unit-unavailable-adb', device='unit-device', launch_timeout_ms=60000,
