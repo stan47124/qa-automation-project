@@ -94,5 +94,4 @@ API — 8 passed, Automation Exercise — 8 passed, Material Files — 6 passed.
 
 ![Allure №29: распределение по Severity](docs/assets/allure-build-29/allure-severity.png)
 
-Скриншоты показывают реальный результат №29. Доступность внешних сервисов
-и состояние локального Android-окружения могут влиять на последующие запуски.
+Скриншоты показывают реальный результат №29. 
