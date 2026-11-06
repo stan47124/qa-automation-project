@@ -17,12 +17,9 @@ from windows_resources import DeviceLock, OwnedProcesses
 
 
 @pytest.fixture
-def run(tmp_path, monkeypatch):
+def run(tmp_path):
     report = tmp_path / 'mobile'
     report.mkdir()
-    # Legacy lifecycle tests isolate their existing transport script. The common
-    # readiness protocol/deadlines are covered by test_android_readiness.py.
-    monkeypatch.setattr(ci, 'wait_android_ready', Mock(return_value={'ready': True}))
     return ci.MobileRun(report)
 
 
@@ -610,29 +607,6 @@ def test_repeated_ci_run_reuses_emulator_without_new_start(run, android_setup):
     run.prepare_device(owned, Mock())
     run.prepare_device(owned, Mock())
     owned.start.assert_not_called()
-
-
-def test_common_readiness_uses_preflight_deadline_before_launch(run, android_setup):
-    owned = android_setup(['emulator-5554 device\n'])
-    def observe_call(*args, **kwargs):
-        assert 0 < kwargs['deadline']-ci.time.monotonic() <= 180
-        assert not any('start' in call.args[0] for call in run.command.call_args_list)
-        assert kwargs['run'] == run.readiness_run
-    ci.wait_android_ready.side_effect = observe_call
-    run.prepare_device(owned, Mock())
-    ci.wait_android_ready.assert_called_once()
-    assert any('start' in call.args[0] for call in run.command.call_args_list)
-
-
-def test_failed_common_readiness_does_not_start_application(run, android_setup):
-    owned = android_setup(['emulator-5554 device\n'])
-    original = TimeoutError('service readiness deadline')
-    ci.wait_android_ready.side_effect = original
-    run.prepare_application = Mock()
-    with pytest.raises(TimeoutError) as captured:
-        run.prepare_device(owned, Mock())
-    assert captured.value is original
-    run.prepare_application.assert_not_called()
 
 
 def test_check_mode_missing_emulator_never_starts(run, android_setup):

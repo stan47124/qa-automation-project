@@ -25,7 +25,6 @@ from windows_resources import DeviceLock, OwnedProcesses
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tests/mobile'))
 from mobile_config import APP_ACTIVITY, APPIUM_URL, BASE_DIRECTORY, DEVICE, PACKAGE  # noqa: E402
-from android_readiness import HostSampler, boot_summary, wait_android_ready  # noqa: E402
 
 
 def timestamp():
@@ -180,23 +179,6 @@ class MobileRun:
         self.env['ANDROID_HOME'] = self.env['ANDROID_SDK_ROOT'] = str(self.sdk)
         self.env['PATH'] = str(self.sdk / 'platform-tools') + os.pathsep + self.env.get('PATH', '')
         self.adb = str(self.sdk / 'platform-tools/adb.exe')
-        self.host_sampler = HostSampler()
-
-    def readiness_run(self, args, **kwargs):
-        # Raw service dumps are parsed in memory, never sent to adb-tools.log.
-        return subprocess.run(args, env=self.env, **kwargs)
-
-    def readiness_observation(self, snapshot):
-        try:
-            snapshot.setdefault('captured_utc', timestamp())
-            with (self.report / 'android-readiness.jsonl').open('a', encoding='utf-8') as stream:
-                stream.write(json.dumps(snapshot) + '\n')
-        except Exception:
-            # Observability must not replace an Android/Appium failure.
-            try:
-                self.note('Android readiness observation unavailable; original operation continues.')
-            except Exception:
-                pass
 
     def note(self, message):
         message = f'[{timestamp()}] {message}'
@@ -228,9 +210,7 @@ class MobileRun:
             return result
 
     def prepare_device(self, owned, stack):
-        started = time.monotonic()
         deadline = time.monotonic() + 180
-        self.host_sampler.sample()
 
         def remaining():
             value = deadline - time.monotonic()
@@ -292,17 +272,9 @@ class MobileRun:
 
         wait_until(booted, remaining(), 'Android boot_completed=1 and Package Manager ready',
                    emulator, log=self.note, report=self.report)
-        wait_android_ready(self.adb, DEVICE, deadline=deadline, package=PACKAGE, activity=APP_ACTIVITY,
-                           run=self.readiness_run, observe=self.readiness_observation,
-                           sampler=self.host_sampler)
         self.prepare_application(command)
         command([self.adb, '-s', DEVICE, 'shell', 'test', '-d', str(BASE_DIRECTORY)])
         self.note(f'Android {DEVICE} ready for Mobile tests; AVD={self.avd}; owned={emulator is not None}.')
-        self.readiness_observation({'phase': 'preflight_complete', 'ready': True,
-                                    'startup_mode': 'runner_started' if emulator is not None else 'reused',
-                                    'boot': boot_summary(self.report / 'emulator.log', reused=emulator is None),
-                                    'preparation_elapsed_s': round(time.monotonic()-started, 3),
-                                    'host': self.host_sampler.sample()})
         return emulator
 
     def prepare_application(self, command):

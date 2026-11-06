@@ -17,11 +17,6 @@ import mobile_session as mobile
 from mobile_config import UIAUTOMATOR2_SERVER_LAUNCH_TIMEOUT_MS
 
 
-@pytest.fixture(autouse=True)
-def isolated_health_probe(monkeypatch):
-    monkeypatch.setattr(mobile, 'session_health', Mock(return_value={'ready': True, 'diagnostic_only': True}))
-
-
 @pytest.mark.parametrize('url,expected', [
     ('https://www.saucedemo.com/cart.html?token=unit-secret#unit-secret',
      'https://www.saucedemo.com/cart.html'),
@@ -91,7 +86,7 @@ def test_logcat_filters_anr_for_appium_only():
 def test_successful_session_is_created_once_and_timed_without_logcat():
     session = object()
     factory = Mock(return_value=session)
-    run = Mock(return_value=SimpleNamespace(returncode=0, stdout='11-04T18:01:00.000\n'))
+    run = Mock(return_value=SimpleNamespace(returncode=0, stdout='11-04 18:01:00.000\n'))
     attach = Mock()
     assert mobile.create_session(factory, adb='adb', device='unit-device', launch_timeout_ms=60000,
                                  run=run, clock=Mock(side_effect=[1, 12]), attach=attach) is session
@@ -106,7 +101,7 @@ def test_successful_session_is_created_once_and_timed_without_logcat():
 def test_failed_session_keeps_original_error_and_attaches_sanitized_logcat():
     original = RuntimeError('unit-secret')
     factory = Mock(side_effect=original)
-    run = Mock(side_effect=[SimpleNamespace(returncode=0, stdout='11-04T18:01:00.000'),
+    run = Mock(side_effect=[SimpleNamespace(returncode=0, stdout='11-04 18:01:00.000'),
                             SimpleNamespace(returncode=0, stdout='11-04 18:01:01.000 1 2 E AndroidRuntime: io.appium.uiautomator2.server fatal unit-secret')])
     attach = Mock()
     with pytest.raises(RuntimeError) as captured:
@@ -117,7 +112,7 @@ def test_failed_session_keeps_original_error_and_attaches_sanitized_logcat():
     assert run.call_args.args[0][-1] == '*:S'
     assert '-c' not in run.call_args.args[0]  # never clear user's logcat
     assert run.call_args.kwargs['timeout'] == 10
-    assert len(attach.call_args_list) == 3
+    assert len(attach.call_args_list) == 2
     assert all('unit-secret' not in call.args[0] for call in attach.call_args_list)
     assert json.loads(attach.call_args.args[0])['session_create_seconds'] == 39
 
@@ -175,6 +170,6 @@ def test_real_allure_json_attachments_for_diagnostic_unit_fixture():
         mobile.create_session(Mock(side_effect=RuntimeError('expected unit failure')),
                               adb='unit-unavailable-adb', device='unit-device', launch_timeout_ms=60000,
                               run=Mock(side_effect=[
-                                  SimpleNamespace(returncode=0, stdout='11-04T18:01:00.000'),
+                                  SimpleNamespace(returncode=0, stdout='11-04 18:01:00.000'),
                                   SimpleNamespace(returncode=0, stdout='11-04 18:01:01.000 1 2 E AndroidRuntime: io.appium.uiautomator2.server fatal'),
                               ]), clock=Mock(side_effect=[1, 32]))
