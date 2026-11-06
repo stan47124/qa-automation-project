@@ -76,7 +76,6 @@ Jenkins обнаруживает новые коммиты GitHub через Pol
 **Jenkins Build #29 — 22 passed / 0 failed / 0 broken.**
 
 API — 8 passed, Automation Exercise — 8 passed, Material Files — 6 passed.
-Результат подтверждён на ревизии `bdc9e97ceba5755d77a6f7c30f213517fe1083ca`.
 
 | Общие результаты: 100% из 22 | Три направления: API, Web UI и Mobile |
 | :---: | :---: |
