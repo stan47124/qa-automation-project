@@ -75,7 +75,7 @@ Pipeline, `post/always` публикует имеющиеся результат
 В обычном PowerShell из корня проекта, после проверки существующей `.venv`:
 
 ```powershell
-$env:PYTHON_EXE = 'C:\Users\user\AppData\Local\Python\bin\python.exe'
+$env:PYTHON_EXE = (Get-Command python.exe).Source
 cmd /d /c ci\run-api.cmd Prepare
 if ($LASTEXITCODE -ne 0) { throw 'API Prepare failed' }
 $run = 'artifacts/local-ci-' + [guid]::NewGuid().ToString('N')
@@ -134,7 +134,7 @@ Write-Output "API exit=$apiExit; Web exit=$webExit; reports=$run"
 
 После отдельного согласования commit/push отправить изменения в `main`.
 Существующий Job должен по-прежнему читать `Jenkinsfile` через Pipeline from SCM.
-На агенте под `WIN-1DRM97P1O7A\user` проверить Chrome, запись в workspace,
+На агенте под `<HOST>\<USER>` проверить Chrome, запись в workspace,
 временные каталоги/кэш Selenium и доступ к Automation Exercise, Petstore,
 PyPI и адресам Chrome for Testing. Не менять права и не останавливать агент.
 Проверить Jenkinsfile через штатный Declarative linter из авторизованной сессии.

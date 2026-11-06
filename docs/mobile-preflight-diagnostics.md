@@ -11,7 +11,7 @@
 ## Что установлено по реальным журналам
 
 Изучены локально доступные артефакты Jenkins в
-`E:\JenkinsAgent\workspace\qa-automation-project\artifacts`:
+`<WORKSPACE>\artifacts`:
 
 - **Сборка 14**, run `jenkins-14-3698ff74399f4fd191673016e247bf7c`:
   JUnit содержит `TimeoutError: timed out`. adb-tools.log подтверждает device,

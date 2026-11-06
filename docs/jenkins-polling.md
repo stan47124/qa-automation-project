@@ -1,7 +1,7 @@
 # Автозапуск Jenkins: Poll SCM и XML 1.1
 
 > **Текущее состояние:** Poll SCM настроен и проверен пользователем. После push
-> Jenkins автоматически выполняет Pipeline: SUCCESS, 22 passed, JUnit и Allure.
+> Jenkins автоматически выполняет Pipeline: №29 — SUCCESS, 22 passed, JUnit и Allure.
 > Повторная настройка существующего Job для обычной работы не нужна.
 > Команды изменения/восстановления ниже предназначены для согласованного
 > воспроизведения настройки; для чтения состояния использовать VerifyOnly.
@@ -69,7 +69,7 @@ ACL не меняются; папка с автоматически назнач
 Сначала только проверить, без записи:
 
 ```powershell
-Set-Location E:\Progects\qa-automation-project
+Set-Location (Join-Path $env:USERPROFILE 'projects\qa-automation-project')
 . .\ci\enable-scm-polling.ps1
 Enable-JenkinsScmPolling -VerifyOnly
 ```

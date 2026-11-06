@@ -1,5 +1,12 @@
 # Web UI: SauceDemo
 
+> **Историческая реализация, не текущий Web UI.** SauceDemo использовался
+> в сборках №26–28. Начиная с ревизии `bdc9e97` активен
+> [Automation Exercise](web-ui-automation-exercise.md), подтверждённый №29.
+> Указанные ниже тестовые модули удалены из текущего дерева; их исходники
+> доступны в [ревизии SauceDemo](https://github.com/stan47124/qa-automation-project/tree/81bb1e2adc2b36c431c039ce50d8ef7b97ceee03/tests/ui).
+> Команды, SD-UI IDs и распределение 12/10/0 ниже относятся к тому этапу.
+
 Набор заменяет восемь сценариев Automation Exercise восемью сценариями SauceDemo.
 API/Mobile, Jenkinsfile, ci/run-web.cmd, зависимости и постоянная история не меняются.
 Реализация подготовлена в отдельном worktree; публикация требует отдельного разрешения.

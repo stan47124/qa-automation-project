@@ -12,7 +12,7 @@
 > Текущий Jenkinsfile расширен до API + Web UI + Mobile:
 > [актуальная инструкция](jenkins-mobile.md), [этап подключения Web UI](jenkins-web.md).
 > По последним данным пользователя агент запускается Планировщиком в сессии
-> `WIN-1DRM97P1O7A\user`, API-сборки и Allure 3 работают. Повторно создавать Job,
+> `<HOST>\<USER>`, API-сборки и Allure 3 работают. Повторно создавать Job,
 > устанавливать Allure или менять автозапуск для подключения Web UI не требуется.
 
 В корне добавлен `Jenkinsfile`; команды подготовки и запуска вынесены в
@@ -30,20 +30,20 @@ Allure; Allure Commandline настроен с именем `allure`. Pipeline �
 2. Выбрать Windows-агент с меткой `windows-api`. Если подходящей метки ещё нет,
    её назначает администратор. Предпочтителен отдельный агент для тестов.
 3. Проверить окружение именно под Windows-учётной записью агента. По последним
-   данным агент `windows-api` работает под `WIN-1DRM97P1O7A\user`, его remote root —
-   `E:\JenkinsAgent`; это отдельный процесс от службы контроллера Jenkins.
+   данным агент `windows-api` работает под `<HOST>\<USER>`, его remote root —
+   `<AGENT_ROOT>`; это отдельный процесс от службы контроллера Jenkins.
    доступ к Git, cmd.exe, Python 3.14 (локально проверена 3.14.3), запись
    в собственный Jenkins workspace и временный каталог, HTTPS-доступ к Git-хостингу,
    PyPI/хранилищу зависимостей и `petstore3.swagger.io`.
    Пользовательские PATH, Python launcher, `.venv` и профиль разработчика
-   службе автоматически не доступны. Не использовать `E:\Progects\qa-automation-project`
+   службе автоматически не доступны. Не использовать `<PROJECT_ROOT>`
    как custom workspace и не копировать локальную `.venv`.
 4. Создать задачу **Pipeline → Pipeline script from SCM → Git**: URL репозитория,
    нужная ветка (например `*/main`), Script Path `Jenkinsfile`.
    Для закрытого репозитория выбрать отдельные read-only SCM credentials в Jenkins;
    не записывать их в URL или Jenkinsfile. Для публичного репозитория они обычно не нужны.
 5. Значение `PYTHON_EXE` по умолчанию —
-   `C:\Users\user\AppData\Local\Python\bin\python.exe`. Этот путь локально проверен:
+   `<PYTHON_EXE>`. Этот путь локально проверен:
    Python 3.14.3, фактический executable в `pythoncore-3.14-64`, не WindowsApps.
    Jenkinsfile явно передаёт параметр в `ci/run-api.cmd Prepare` через `withEnv`.
    `ci/check-python.py` проверяет выбранный интерпретатор и соответствие ему
@@ -209,7 +209,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Job creation failed; inspect the error before 
 не меняет права и не применяет административный токен.
 Ту же конфигурацию можно ввести через **New Item → qa-automation-project → Pipeline**
 по шагам выше. Не задавать custom workspace: Jenkins создаст workspace внутри
-`E:\JenkinsAgent` на агенте. Для lightweight checkout контроллеру тоже нужен
+`<AGENT_ROOT>` на агенте. Для lightweight checkout контроллеру тоже нужен
 доступ к приватному репозиторию через выбранные credentials.
 
 Перед первой сборкой выполнить CLI linter из обычного PowerShell (см. выше),
@@ -218,7 +218,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Job creation failed; inspect the error before 
 локальную подготовку до отдельного согласованного commit/push.
 
 Проверки после выбора конкретного Python: запуск
-`C:\Users\user\AppData\Local\Python\bin\python.exe ci/check-python.py` прошёл,
+`<PYTHON_EXE> ci/check-python.py` прошёл,
 существующая локальная `.venv` соответствует выбранной установке. XML-шаблон
 успешно разобран; definition, ветка, scriptPath и заглушка credentials проверены.
 `pip check` прошёл, `pytest tests/api --collect-only -q` собрал 8 тестов, exit 0;
@@ -227,7 +227,7 @@ Prepare с установкой зависимостей также не вып�
 агента и запуск Job остаются невыполненными.
 
 Дополнительно проверено реальное создание виртуального окружения:
-`C:\Users\user\AppData\Local\Python\bin\python.exe -m venv artifacts/python-venv-probe-85b8c791ec684702b3b672841af190da`
+`<PYTHON_EXE> -m venv artifacts/python-venv-probe-85b8c791ec684702b3b672841af190da`
 завершилось с exit 0. Python внутри окружения подтвердил `sys.prefix != sys.base_prefix`,
 `-m pip --version` отработал (pip 25.3). Проверочное окружение осталось в игнорируемом
 `artifacts`, зависимости проекта в него не устанавливались.

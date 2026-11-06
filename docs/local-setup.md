@@ -4,6 +4,9 @@
 устанавливаются по [README](../README.md#локальный-запуск). Ни pytest, ни CI runner
 не устанавливают Android SDK, AVD, Appium Server, UiAutomator2 или Material Files.
 
+Проверенные версии с источниками: [окружение проекта](environment.md).
+Node.js Appium в №29 — 26.13.0; отдельный Node.js Allure — 24.14.1.
+
 ## Предварительная настройка
 
 1. Установите Android SDK с platform-tools и emulator, например через Android

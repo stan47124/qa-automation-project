@@ -1,5 +1,11 @@
 # Диагностика Web UI и Mobile CI
 
+> **Историческая диагностика №23.** Описанная блокировка не является текущим
+> результатом: в №29 Automation Exercise — 8 passed, Mobile — 6 passed.
+> Актуальные инструкции: [Web UI](web-ui-automation-exercise.md),
+> [Mobile CI](jenkins-mobile.md). Причины прежней нестабильности не объявляются
+> окончательно устранёнными по одному успешному прогону.
+
 Изменения подготовлены после Jenkins №23 (UNSTABLE: API 8 passed, Web UI 8 failed,
 Mobile 1 passed / 5 broken). Они не изменяют сценарии, assertions, severity,
 идентификаторы тестов и постоянную историю Allure. Jenkinsfile не изменён.

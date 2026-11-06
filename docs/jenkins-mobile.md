@@ -6,7 +6,9 @@ environment → Web UI tests → Prepare Mobile environment → Mobile tests →
 По подтверждённым пользователем результатам: **SUCCESS, 22 passed** —
 8 API + 8 Web UI + 6 Mobile, JUnit и общий Allure опубликованы. Poll SCM,
 автозапуск существующего AVD Pixel_4 и Appium проверены реальной сборкой
-при изначально выключенном эмуляторе. Номер сборки здесь не зафиксирован.
+при изначально выключенном эмуляторе. Последняя подтверждённая сборка — **№29** (ревизия `bdc9e97`),
+Web UI — Automation Exercise, WebDriver Monitor отключён.
+[Проверенные версии инструментов](environment.md).
 См. также [общую инструкцию](../README.md#jenkins-ci).
 
 Разделы настройки ниже описывают рабочую реализацию. Далее отдельно сохранена
@@ -153,7 +155,7 @@ JUnit читает `<run>/*/junit.xml`; Allure получает три отде�
 Из обычного PowerShell в сессии пользователя агента (без повышения прав):
 
 ```powershell
-$sdk = 'C:\Users\user\AppData\Local\Android\Sdk'
+$sdk = Join-Path $env:LOCALAPPDATA 'Android\Sdk'
 & "$sdk\emulator\emulator.exe" -list-avds
 & "$sdk\platform-tools\adb.exe" devices -l
 & "$sdk\platform-tools\adb.exe" -s emulator-5554 shell getprop sys.boot_completed
@@ -193,7 +195,7 @@ Check требует уже работающих устройства и Appium,
 ### Проверка автозапуска Android
 
 SDK и `emulator -list-avds` проверены локально: SDK
-`C:\Users\user\AppData\Local\Android\Sdk`, AVD `Pixel_4` существует.
+`%LOCALAPPDATA%\Android\Sdk`, AVD `Pixel_4` существует.
 Реальная проверка `adb devices -l` из песочницы завершилась ошибкой
 `Cannot mkdir '\.android': Permission denied`; права и HOME не менялись.
 Это ограничение проверки в Codex, а не доказательство ошибки ADB под агентом.
@@ -220,7 +222,7 @@ JUnit, Allure и архив `emulator.log`, `environment.log`, `adb-tools.log`.
 
 - Подтверждены: Java Temurin 25.0.5, Node.js 26.13.0, Appium 3.9.0,
   UiAutomator2 8.7.3, Python Client 6.0.12, Emulator 37.2.13.0.
-  ANDROID_HOME указывает на `C:\Users\user\AppData\Local\Android\Sdk`,
+  ANDROID_HOME указывает на `%LOCALAPPDATA%\Android\Sdk`,
   ANDROID_SDK_ROOT не задан, JAVA_HOME — Temurin; adb доступен в PATH,
   emulator/sdkmanager найдены внутри SDK, в PATH не найдены.
 - `emulator -list-avds`: Pixel_4. Найдены platform-tools, emulator,
